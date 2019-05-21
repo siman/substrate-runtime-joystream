@@ -25,6 +25,7 @@ mod traits;
 use membership::members;
 mod migration;
 mod roles;
+mod blogs;
 use client::{
     block_builder::api::{self as block_builder_api, CheckInherentsResult, InherentData},
     impl_runtime_apis, runtime_api as client_api,
@@ -292,6 +293,13 @@ impl members::Trait for Runtime {
     type Roles = Actors;
 }
 
+impl blogs::Trait for Runtime {
+    type Event = Event;
+    type BlogId = u64;
+    type PostId = u64;
+    type CommentId = u64;
+}
+
 impl migration::Trait for Runtime {
     type Event = Event;
 }
@@ -333,6 +341,7 @@ construct_runtime!(
 		Council: council::{Module, Call, Storage, Event<T>, Config<T>},
 		Memo: memo::{Module, Call, Storage, Event<T>},
 		Members: members::{Module, Call, Storage, Event<T>, Config<T>},
+        Blogs: blogs::{Module, Call, Storage, Event<T>},
 		Migration: migration::{Module, Call, Storage, Event<T>},
 		Actors: actors::{Module, Call, Storage, Event<T>, Config<T>},
 		DataObjectTypeRegistry: data_object_type_registry::{Module, Call, Storage, Event<T>, Config<T>},
