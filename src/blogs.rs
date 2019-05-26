@@ -24,7 +24,7 @@ pub trait Trait: system::Trait + timestamp::Trait + MaybeDebug {
 #[cfg_attr(feature = "std", derive(Debug))]
 #[derive(Clone, Encode, Decode, PartialEq)]
 pub struct Change<T: Trait> {
-  account: T::AccountId,
+  account: T::AccountId, // TODO rename to 'owner', also refactor in TypeScript code
   block: T::BlockNumber,
   time: T::Moment,
 }
@@ -61,7 +61,7 @@ pub struct Post<T: Trait> {
   updated: Option<Change<T>>,
 
   // Can be updated by the owner:
-  slug: Vec<u8>,
+  slug: Vec<u8>, // TODO make slug optional for post or even remove it
   json: Vec<u8>,
 }
 
@@ -192,7 +192,7 @@ decl_module! {
     fn create_post(origin, blog_id: T::BlogId, slug: Vec<u8>, json: Vec<u8>) {
       let owner = ensure_signed(origin)?;
 
-      ensure!(!<BlogById<T>>::exists(blog_id), "Unknown blog id");
+      ensure!(<BlogById<T>>::exists(blog_id), "Unknown blog id");
 
       ensure!(slug.len() >= Self::slug_min_len() as usize, "Post slug is too short");
       ensure!(slug.len() <= Self::slug_max_len() as usize, "Post slug is too long");
@@ -222,12 +222,12 @@ decl_module! {
     fn create_comment(origin, post_id: T::PostId, parent_id: Option<T::CommentId>, json: Vec<u8>) {
       let owner = ensure_signed(origin)?;
 
-      ensure!(!<PostById<T>>::exists(post_id), "Unknown post id");
+      ensure!(<PostById<T>>::exists(post_id), "Unknown post id");
       let post = Self::post_by_id(&post_id).unwrap();
       let blog_id = post.blog_id;
 
       if let Some(id) = parent_id {
-        ensure!(!<CommentById<T>>::exists(id), "Unknown parent comment id");
+        ensure!(<CommentById<T>>::exists(id), "Unknown parent comment id");
       }
 
       ensure!(json.len() <= Self::comment_max_len() as usize, "Comment JSON is too long");
