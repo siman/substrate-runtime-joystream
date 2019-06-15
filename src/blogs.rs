@@ -269,21 +269,28 @@ decl_module! {
       ensure!(owner == blog.created.account, "Only a blog owner can update their blog");
 
       if let Some(writers) = update.writers {
-        // TODO validate writers.
-        // TODO update BlogIdsByWriter: insert new, delete removed, update only changed writers.
-        blog.writers = writers;
+        if writers != blog.writers {
+          // TODO validate writers.
+          // TODO update BlogIdsByWriter: insert new, delete removed, update only changed writers.
+          blog.writers = writers;
+        }
       }
 
       if let Some(slug) = update.slug {
-        // TODO validate slug.
-        <BlogIdBySlug<T>>::remove(blog.slug);
-        <BlogIdBySlug<T>>::insert(slug.clone(), blog_id);
-        blog.slug = slug;
+        if slug != blog.slug {
+          // TODO validate slug.
+          ensure!(!<PostIdBySlug<T>>::exists(slug.clone()), "Post slug is not unique");
+          <BlogIdBySlug<T>>::remove(blog.slug);
+          <BlogIdBySlug<T>>::insert(slug.clone(), blog_id);
+          blog.slug = slug;
+        }
       }
 
       if let Some(json) = update.json {
-        // TODO validate json.
-        blog.json = json;
+        if json != blog.json {
+          // TODO validate json.
+          blog.json = json;
+        }
       }
 
       blog.updated = Some(Self::new_change(owner.clone()));
@@ -307,32 +314,38 @@ decl_module! {
       ensure!(owner == post.created.account, "Only a post owner can update their post");
 
       if let Some(slug) = update.slug {
-        // TODO validate slug.
-        ensure!(!<PostIdBySlug<T>>::exists(slug.clone()), "Post slug is not unique");
-        <PostIdBySlug<T>>::remove(post.slug);
-        <PostIdBySlug<T>>::insert(slug.clone(), post_id);
-        post.slug = slug;
+        if slug != post.slug {
+          // TODO validate slug.
+          ensure!(!<PostIdBySlug<T>>::exists(slug.clone()), "Post slug is not unique");
+          <PostIdBySlug<T>>::remove(post.slug);
+          <PostIdBySlug<T>>::insert(slug.clone(), post_id);
+          post.slug = slug;
+        }
       }
 
       if let Some(json) = update.json {
-        // TODO validate json.
-        post.json = json;
+        if json != post.json {
+          // TODO validate json.
+          post.json = json;
+        }
       }
 
       // Move this post to another blog:
       if let Some(blog_id) = update.blog_id {
-        ensure!(<BlogById<T>>::exists(blog_id), "Unknown blog id");
-        
-        // Remove post_id from its old blog:
-        <PostIdsByBlogId<T>>::mutate(post.blog_id, |ids| {
-          if let Some(index) = ids.iter().position(|x| *x == post_id) {
-            ids.swap_remove(index);
-          }
-        });
-        
-        // Add post_id to its new blog:
-        <PostIdsByBlogId<T>>::mutate(blog_id.clone(), |ids| ids.push(post_id));
-        post.blog_id = blog_id;
+        if blog_id != post.blog_id {
+          ensure!(<BlogById<T>>::exists(blog_id), "Unknown blog id");
+          
+          // Remove post_id from its old blog:
+          <PostIdsByBlogId<T>>::mutate(post.blog_id, |ids| {
+            if let Some(index) = ids.iter().position(|x| *x == post_id) {
+              ids.swap_remove(index);
+            }
+          });
+          
+          // Add post_id to its new blog:
+          <PostIdsByBlogId<T>>::mutate(blog_id.clone(), |ids| ids.push(post_id));
+          post.blog_id = blog_id;
+        }
       }
 
       post.updated = Some(Self::new_change(owner.clone()));
