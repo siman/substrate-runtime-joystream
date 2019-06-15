@@ -60,14 +60,17 @@ pub struct Post<T: Trait> {
   created: Change<T>,
   updated: Option<Change<T>>,
 
-  // Can be updated by the owner:
-  slug: Vec<u8>, // TODO make slug optional for post or even remove it
+  // Next fields can be updated by the owner only:
+
+  // TODO make slug optional for post or even remove it
+  slug: Vec<u8>,
   json: Vec<u8>,
 }
 
 #[cfg_attr(feature = "std", derive(Debug))]
 #[derive(Clone, Encode, Decode, PartialEq)]
-pub struct PostUpdate {
+pub struct PostUpdate<T: Trait> {
+  blog_id: Option<T::BlogId>,
   slug: Option<Vec<u8>>,
   json: Option<Vec<u8>>,
 }
@@ -137,13 +140,13 @@ decl_event! {
     BlogUpdated(AccountId, BlogId),
     BlogDeleted(AccountId, BlogId),
 
-    PostCreated(AccountId, BlogId, PostId),
-    PostUpdated(AccountId, BlogId, PostId),
-    PostDeleted(AccountId, BlogId, PostId),
+    PostCreated(AccountId, PostId),
+    PostUpdated(AccountId, PostId),
+    PostDeleted(AccountId, PostId),
 
-    CommentCreated(AccountId, BlogId, PostId, CommentId),
-    CommentUpdated(AccountId, BlogId, PostId, CommentId),
-    CommentDeleted(AccountId, BlogId, PostId, CommentId),
+    CommentCreated(AccountId, CommentId),
+    CommentUpdated(AccountId, CommentId),
+    CommentDeleted(AccountId, CommentId),
   }
 }
 
@@ -215,7 +218,7 @@ decl_module! {
       <PostIdsByBlogId<T>>::mutate(blog_id, |ids| ids.push(post_id));
       <PostIdBySlug<T>>::insert(slug, post_id);
       <NextPostId<T>>::mutate(|n| { *n += T::PostId::sa(1); });
-      Self::deposit_event(RawEvent::PostCreated(owner.clone(), blog_id, post_id));
+      Self::deposit_event(RawEvent::PostCreated(owner.clone(), post_id));
     }
 
     // TODO use CommentUpdate to pass data
@@ -247,7 +250,7 @@ decl_module! {
       <CommentById<T>>::insert(comment_id, new_comment);
       <CommentIdsByPostId<T>>::mutate(post_id, |ids| ids.push(comment_id));
       <NextCommentId<T>>::mutate(|n| { *n += T::CommentId::sa(1); });
-      Self::deposit_event(RawEvent::CommentCreated(owner.clone(), blog_id, post_id, comment_id));
+      Self::deposit_event(RawEvent::CommentCreated(owner.clone(), comment_id));
     }
 
     fn update_blog(origin, blog_id: T::BlogId, update: BlogUpdate<T>) {
@@ -262,7 +265,7 @@ decl_module! {
 
       let mut blog = Self::blog_by_id(blog_id).ok_or("Blog was not found by id")?;
 
-      // TODO ensure maybe it's a writer
+      // TODO ensure: blog writers also should be able to edit this blog:
       ensure!(owner == blog.created.account, "Only a blog owner can update their blog");
 
       if let Some(writers) = update.writers {
@@ -288,7 +291,54 @@ decl_module! {
       Self::deposit_event(RawEvent::BlogUpdated(owner.clone(), blog_id));
     }
     
-    // TODO fn update_post(origin, post_id: T::PostId, post: PostUpdate) {}
+    fn update_post(origin, post_id: T::PostId, update: PostUpdate<T>) {
+      let owner = ensure_signed(origin)?;
+      
+      let has_updates = 
+        update.blog_id.is_some() ||
+        update.slug.is_some() ||
+        update.json.is_some();
+
+      ensure!(has_updates, "Nothing to update in a post");
+
+      let mut post = Self::post_by_id(post_id).ok_or("Post was not found by id")?;
+
+      // TODO ensure: blog writers also should be able to edit this post:
+      ensure!(owner == post.created.account, "Only a post owner can update their post");
+
+      if let Some(slug) = update.slug {
+        // TODO validate slug.
+        ensure!(!<PostIdBySlug<T>>::exists(slug.clone()), "Post slug is not unique");
+        <PostIdBySlug<T>>::remove(post.slug);
+        <PostIdBySlug<T>>::insert(slug.clone(), post_id);
+        post.slug = slug;
+      }
+
+      if let Some(json) = update.json {
+        // TODO validate json.
+        post.json = json;
+      }
+
+      // Move this post to another blog:
+      if let Some(blog_id) = update.blog_id {
+        ensure!(<BlogById<T>>::exists(blog_id), "Unknown blog id");
+        
+        // Remove post_id from its old blog:
+        <PostIdsByBlogId<T>>::mutate(post.blog_id, |ids| {
+          if let Some(index) = ids.iter().position(|x| *x == post_id) {
+            ids.swap_remove(index);
+          }
+        });
+        
+        // Add post_id to its new blog:
+        <PostIdsByBlogId<T>>::mutate(blog_id.clone(), |ids| ids.push(post_id));
+        post.blog_id = blog_id;
+      }
+
+      post.updated = Some(Self::new_change(owner.clone()));
+      <PostById<T>>::insert(post_id, post);
+      Self::deposit_event(RawEvent::PostUpdated(owner.clone(), post_id));
+    }
     
     // TODO fn update_comment(origin, comment_id: T::CommentId, comment: CommentUpdate) {}
 
