@@ -4,7 +4,6 @@ use parity_codec_derive::{Encode, Decode};
 use srml_support::{StorageMap, StorageValue, dispatch, decl_module, decl_storage, decl_event, ensure, Parameter};
 use runtime_primitives::traits::{SimpleArithmetic, As, Member, MaybeDebug, MaybeSerializeDebug};
 use system::{self, ensure_signed};
-use runtime_io::print;
 use {timestamp};
 
 pub trait Trait: system::Trait + timestamp::Trait + MaybeDebug {
@@ -24,7 +23,7 @@ pub trait Trait: system::Trait + timestamp::Trait + MaybeDebug {
 #[cfg_attr(feature = "std", derive(Debug))]
 #[derive(Clone, Encode, Decode, PartialEq)]
 pub struct Change<T: Trait> {
-  account: T::AccountId, // TODO rename to 'owner', also refactor in TypeScript code
+  account: T::AccountId,
   block: T::BlockNumber,
   time: T::Moment,
 }
@@ -163,14 +162,17 @@ decl_module! {
       // Stub
     }
 
-    // TODO use BlogUpdate to pass data
-    fn create_blog(origin, slug: Vec<u8>, json: Vec<u8>) {
+    fn create_blog(origin, data: BlogUpdate<T>) {
       let owner = ensure_signed(origin)?;
 
+      ensure!(data.writers == None, "Blog writers shouldn't be provided on creation");
+
+      let slug = data.slug.expect("Blog slug should be provided");
       ensure!(slug.len() >= Self::slug_min_len() as usize, "Blog slug is too short");
       ensure!(slug.len() <= Self::slug_max_len() as usize, "Blog slug is too long");
       ensure!(!<BlogIdBySlug<T>>::exists(slug.clone()), "Blog slug is not unique");
 
+      let json = data.json.expect("Blog JSON should be provided");
       ensure!(json.len() <= Self::blog_max_len() as usize, "Blog JSON is too long");
 
       let blog_id = Self::next_blog_id();
@@ -191,17 +193,20 @@ decl_module! {
       Self::deposit_event(RawEvent::BlogCreated(owner.clone(), blog_id));
     }
 
-    // TODO use PostUpdate to pass data
-    fn create_post(origin, blog_id: T::BlogId, slug: Vec<u8>, json: Vec<u8>) {
+    fn create_post(origin, data: PostUpdate<T>) {
       let owner = ensure_signed(origin)?;
 
+      let blog_id = data.blog_id.expect("Blog id should be provided");
       ensure!(<BlogById<T>>::exists(blog_id), "Unknown blog id");
 
+      let slug = data.slug.expect("Post slug should be provided");
       ensure!(slug.len() >= Self::slug_min_len() as usize, "Post slug is too short");
       ensure!(slug.len() <= Self::slug_max_len() as usize, "Post slug is too long");
       ensure!(!<PostIdBySlug<T>>::exists(slug.clone()), "Post slug is not unique");
 
+      let json = data.json.expect("Post json should be provided");
       ensure!(json.len() <= Self::post_max_len() as usize, "Post JSON is too long");
+      // Todo: Ensure that post have some data in json
 
       let post_id = Self::next_post_id();
 
@@ -221,8 +226,7 @@ decl_module! {
       Self::deposit_event(RawEvent::PostCreated(owner.clone(), post_id));
     }
 
-    // TODO use CommentUpdate to pass data
-    fn create_comment(origin, post_id: T::PostId, parent_id: Option<T::CommentId>, json: Vec<u8>) {
+    fn create_comment(origin, post_id: T::PostId, parent_id: Option<T::CommentId>, data: CommentUpdate) {
       let owner = ensure_signed(origin)?;
 
       ensure!(<PostById<T>>::exists(post_id), "Unknown post id");
@@ -233,7 +237,7 @@ decl_module! {
         ensure!(<CommentById<T>>::exists(id), "Unknown parent comment id");
       }
 
-      ensure!(json.len() <= Self::comment_max_len() as usize, "Comment JSON is too long");
+      ensure!(data.json.len() <= Self::comment_max_len() as usize, "Comment JSON is too long");
 
       let comment_id = Self::next_comment_id();
 
@@ -244,7 +248,7 @@ decl_module! {
         blog_id,
         created: Self::new_change(owner.clone()),
         updated: None,
-        json
+        json: data.json,
       };
 
       <CommentById<T>>::insert(comment_id, new_comment);
@@ -255,8 +259,8 @@ decl_module! {
 
     fn update_blog(origin, blog_id: T::BlogId, update: BlogUpdate<T>) {
       let owner = ensure_signed(origin)?;
-      
-      let has_updates = 
+
+      let has_updates =
         update.writers.is_some() ||
         update.slug.is_some() ||
         update.json.is_some();
@@ -264,6 +268,7 @@ decl_module! {
       ensure!(has_updates, "Nothing to update in a blog");
 
       let mut blog = Self::blog_by_id(blog_id).ok_or("Blog was not found by id")?;
+      let mut fields_changed = 0;
 
       // TODO ensure: blog writers also should be able to edit this blog:
       ensure!(owner == blog.created.account, "Only a blog owner can update their blog");
@@ -273,6 +278,7 @@ decl_module! {
           // TODO validate writers.
           // TODO update BlogIdsByWriter: insert new, delete removed, update only changed writers.
           blog.writers = writers;
+          fields_changed += 1;
         }
       }
 
@@ -283,6 +289,7 @@ decl_module! {
           <BlogIdBySlug<T>>::remove(blog.slug);
           <BlogIdBySlug<T>>::insert(slug.clone(), blog_id);
           blog.slug = slug;
+          fields_changed += 1;
         }
       }
 
@@ -290,18 +297,21 @@ decl_module! {
         if json != blog.json {
           // TODO validate json.
           blog.json = json;
+          fields_changed += 1;
         }
       }
 
-      blog.updated = Some(Self::new_change(owner.clone()));
-      <BlogById<T>>::insert(blog_id, blog);
-      Self::deposit_event(RawEvent::BlogUpdated(owner.clone(), blog_id));
+      if fields_changed > 0 {
+        blog.updated = Some(Self::new_change(owner.clone()));
+        <BlogById<T>>::insert(blog_id, blog);
+        Self::deposit_event(RawEvent::BlogUpdated(owner.clone(), blog_id));
+      }
     }
-    
+
     fn update_post(origin, post_id: T::PostId, update: PostUpdate<T>) {
       let owner = ensure_signed(origin)?;
-      
-      let has_updates = 
+
+      let has_updates =
         update.blog_id.is_some() ||
         update.slug.is_some() ||
         update.json.is_some();
@@ -334,14 +344,14 @@ decl_module! {
       if let Some(blog_id) = update.blog_id {
         if blog_id != post.blog_id {
           ensure!(<BlogById<T>>::exists(blog_id), "Unknown blog id");
-          
+
           // Remove post_id from its old blog:
           <PostIdsByBlogId<T>>::mutate(post.blog_id, |ids| {
             if let Some(index) = ids.iter().position(|x| *x == post_id) {
               ids.swap_remove(index);
             }
           });
-          
+
           // Add post_id to its new blog:
           <PostIdsByBlogId<T>>::mutate(blog_id.clone(), |ids| ids.push(post_id));
           post.blog_id = blog_id;
@@ -352,15 +362,26 @@ decl_module! {
       <PostById<T>>::insert(post_id, post);
       Self::deposit_event(RawEvent::PostUpdated(owner.clone(), post_id));
     }
-    
-    // TODO fn update_comment(origin, comment_id: T::CommentId, comment: CommentUpdate) {}
+
+    fn update_comment(origin, comment_id: T::CommentId, update: CommentUpdate) {
+      let owner = ensure_signed(origin)?;
+
+      ensure!(update.json.len() <= Self::comment_max_len() as usize, "Comment JSON is too long");
+      ensure!(<CommentById<T>>::exists(comment_id), "Unknown comment id");
+      let mut comment = Self::comment_by_id(&comment_id).unwrap();
+      // ensure!(comment.json != update.json, "Comment not changed");
+      comment.json = update.json;
+
+      <CommentById<T>>::insert(comment_id.clone(), comment);
+      Self::deposit_event(RawEvent::CommentUpdated(owner.clone(), comment_id));
+    }
 
     // TODO fn delete_blog(origin, blog_id: T::BlogId) {
       // TODO only owner can delete
     // }
-    
+
     // TODO fn delete_post(origin, post_id: T::PostId) {}
-    
+
     // TODO fn delete_comment(origin, comment_id: T::CommentId) {}
 
     // TODO spend some tokens on: create/update a blog/post/comment.
