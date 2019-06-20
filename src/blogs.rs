@@ -319,6 +319,7 @@ decl_module! {
       ensure!(has_updates, "Nothing to update in a post");
 
       let mut post = Self::post_by_id(post_id).ok_or("Post was not found by id")?;
+      let mut fields_changed = 0;
 
       // TODO ensure: blog writers also should be able to edit this post:
       ensure!(owner == post.created.account, "Only a post owner can update their post");
@@ -330,6 +331,7 @@ decl_module! {
           <PostIdBySlug<T>>::remove(post.slug);
           <PostIdBySlug<T>>::insert(slug.clone(), post_id);
           post.slug = slug;
+          fields_changed += 1;
         }
       }
 
@@ -337,6 +339,7 @@ decl_module! {
         if json != post.json {
           // TODO validate json.
           post.json = json;
+          fields_changed += 1;
         }
       }
 
@@ -355,12 +358,15 @@ decl_module! {
           // Add post_id to its new blog:
           <PostIdsByBlogId<T>>::mutate(blog_id.clone(), |ids| ids.push(post_id));
           post.blog_id = blog_id;
+          fields_changed += 1;
         }
       }
 
-      post.updated = Some(Self::new_change(owner.clone()));
-      <PostById<T>>::insert(post_id, post);
-      Self::deposit_event(RawEvent::PostUpdated(owner.clone(), post_id));
+      if fields_changed > 0 {
+        post.updated = Some(Self::new_change(owner.clone()));
+        <PostById<T>>::insert(post_id, post);
+        Self::deposit_event(RawEvent::PostUpdated(owner.clone(), post_id));
+      }
     }
 
     fn update_comment(origin, comment_id: T::CommentId, update: CommentUpdate) {
