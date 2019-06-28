@@ -361,6 +361,7 @@ decl_module! {
       ensure!(json.len() <= Self::comment_max_len() as usize, "Comment JSON is too long");
       ensure!(json != comment.json, "New comment JSON is the same as old one");
 
+      comment.json = json;
       comment.updated = Some(Self::new_change(owner.clone()));
       <CommentById<T>>::insert(comment_id, comment);
       Self::deposit_event(RawEvent::CommentUpdated(owner.clone(), comment_id));
