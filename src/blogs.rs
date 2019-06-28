@@ -357,6 +357,7 @@ decl_module! {
       ensure!(owner == comment.created.account, "Only comment author can update their comment");
 
       let json = update.json;
+      // TODO validate min length
       ensure!(json.len() <= Self::comment_max_len() as usize, "Comment JSON is too long");
       ensure!(json != comment.json, "New comment JSON is the same as old one");
 
