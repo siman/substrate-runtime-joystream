@@ -81,7 +81,6 @@ pub struct Comment<T: Trait> {
   id: T::CommentId,
   parent_id: Option<T::CommentId>,
   post_id: T::PostId,
-  blog_id: T::BlogId,
   created: Change<T>,
   updated: Option<Change<T>>,
 
@@ -226,8 +225,6 @@ decl_module! {
       let owner = ensure_signed(origin)?;
 
       ensure!(<PostById<T>>::exists(post_id), "Unknown post id");
-      let post = Self::post_by_id(&post_id).unwrap();
-      let blog_id = post.blog_id;
 
       if let Some(id) = parent_id {
         ensure!(<CommentById<T>>::exists(id), "Unknown parent comment id");
@@ -241,7 +238,6 @@ decl_module! {
         id: comment_id,
         parent_id,
         post_id,
-        blog_id,
         created: Self::new_change(owner.clone()),
         updated: None,
         json
