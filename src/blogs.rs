@@ -352,15 +352,12 @@ decl_module! {
     fn update_comment(origin, comment_id: T::CommentId, update: CommentUpdate) {
       let owner = ensure_signed(origin)?;
 
-
       let mut comment = Self::comment_by_id(comment_id).ok_or("Comment was not found by id")?;
 
       ensure!(owner == comment.created.account, "Only comment author can update their comment");
 
       let json = update.json;
-
       ensure!(json.len() <= Self::comment_max_len() as usize, "Comment JSON is too long");
-
       ensure!(json != comment.json, "New comment JSON is the same as old one");
 
       comment.updated = Some(Self::new_change(owner.clone()));
