@@ -145,7 +145,7 @@ decl_storage! {
     CommentIdsByPostId get(comment_ids_by_post_id): map T::PostId => Vec<T::CommentId>;
 
     ReactionIdsByPostId get(reaction_ids_by_post_id): map T::PostId => Vec<T::ReactionId>;
-    ReactionIdsByCommentId get(reaction_ids_by_comment_id): map T::CommentId => Vec<T::ReactionId>;    
+    ReactionIdsByCommentId get(reaction_ids_by_comment_id): map T::CommentId => Vec<T::ReactionId>;
 
     BlogIdBySlug get(blog_id_by_slug): map Vec<u8> => Option<T::BlogId>;
     PostIdBySlug get(post_id_by_slug): map Vec<u8> => Option<T::PostId>;
@@ -336,11 +336,14 @@ decl_module! {
       // TODO ensure: blog writers also should be able to edit this blog:
       ensure!(owner == blog.created.account, "Only a blog owner can update their blog");
 
+      let mut fields_updated = 0;
+
       if let Some(writers) = update.writers {
         if writers != blog.writers {
           // TODO validate writers.
           // TODO update BlogIdsByWriter: insert new, delete removed, update only changed writers.
           blog.writers = writers;
+          fields_updated += 1;
         }
       }
 
@@ -351,6 +354,7 @@ decl_module! {
           <BlogIdBySlug<T>>::remove(blog.slug);
           <BlogIdBySlug<T>>::insert(slug.clone(), blog_id);
           blog.slug = slug;
+          fields_updated += 1;
         }
       }
 
@@ -358,12 +362,16 @@ decl_module! {
         if json != blog.json {
           // TODO validate json.
           blog.json = json;
+          fields_updated += 1;
         }
       }
 
-      blog.updated = Some(Self::new_change(owner.clone()));
-      <BlogById<T>>::insert(blog_id, blog);
-      Self::deposit_event(RawEvent::BlogUpdated(owner.clone(), blog_id));
+      // Update this blog only if at lest one field should be updated:
+      if fields_updated > 0 {
+        blog.updated = Some(Self::new_change(owner.clone()));
+        <BlogById<T>>::insert(blog_id, blog);
+        Self::deposit_event(RawEvent::BlogUpdated(owner.clone(), blog_id));
+      }
     }
     
     fn update_post(origin, post_id: T::PostId, update: PostUpdate<T>) {
@@ -381,6 +389,8 @@ decl_module! {
       // TODO ensure: blog writers also should be able to edit this post:
       ensure!(owner == post.created.account, "Only a post owner can update their post");
 
+      let mut fields_updated = 0;
+
       if let Some(slug) = update.slug {
         if slug != post.slug {
           // TODO validate slug.
@@ -388,6 +398,7 @@ decl_module! {
           <PostIdBySlug<T>>::remove(post.slug);
           <PostIdBySlug<T>>::insert(slug.clone(), post_id);
           post.slug = slug;
+          fields_updated += 1;
         }
       }
 
@@ -395,6 +406,7 @@ decl_module! {
         if json != post.json {
           // TODO validate json.
           post.json = json;
+          fields_updated += 1;
         }
       }
 
@@ -413,12 +425,16 @@ decl_module! {
           // Add post_id to its new blog:
           <PostIdsByBlogId<T>>::mutate(blog_id.clone(), |ids| ids.push(post_id));
           post.blog_id = blog_id;
+          fields_updated += 1;
         }
       }
 
-      post.updated = Some(Self::new_change(owner.clone()));
-      <PostById<T>>::insert(post_id, post);
-      Self::deposit_event(RawEvent::PostUpdated(owner.clone(), post_id));
+      // Update this post only if at lest one field should be updated:
+      if fields_updated > 0 {
+        post.updated = Some(Self::new_change(owner.clone()));
+        <PostById<T>>::insert(post_id, post);
+        Self::deposit_event(RawEvent::PostUpdated(owner.clone(), post_id));
+      }
     }
     
     fn update_comment(origin, comment_id: T::CommentId, update: CommentUpdate) {
