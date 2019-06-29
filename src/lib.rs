@@ -298,6 +298,7 @@ impl blogs::Trait for Runtime {
     type BlogId = u64;
     type PostId = u64;
     type CommentId = u64;
+    type ReactionId = u64;
 }
 
 impl migration::Trait for Runtime {
