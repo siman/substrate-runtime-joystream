@@ -19,6 +19,9 @@ pub trait Trait: system::Trait + timestamp::Trait + MaybeDebug {
 
   type CommentId: Parameter + Member + SimpleArithmetic + Codec + Default + Copy
     + As<usize> + As<u64> + MaybeSerializeDebug + PartialEq;
+
+  type ReactionId: Parameter + Member + SimpleArithmetic + Codec + Default + Copy
+    + As<usize> + As<u64> + MaybeSerializeDebug + PartialEq;
 }
 
 #[cfg_attr(feature = "std", derive(Debug))]
@@ -95,6 +98,27 @@ pub struct CommentUpdate {
   json: Vec<u8>,
 }
 
+#[cfg_attr(feature = "std", derive(Serialize, Deserialize, Debug))]
+#[derive(Encode, Decode, Clone, PartialEq, Eq)]
+pub enum ReactionKind {
+    Upvote,
+    Downvote,
+}
+
+impl Default for ReactionKind {
+    fn default() -> Self {
+        ReactionKind::Upvote
+    }
+}
+
+#[cfg_attr(feature = "std", derive(Debug))]
+#[derive(Clone, Encode, Decode, PartialEq)]
+pub struct Reaction<T: Trait> {
+  id: T::ReactionId,
+  created: Change<T>,
+  kind: ReactionKind,
+}
+
 const DEFAULT_SLUG_MIN_LEN: u32 = 5;
 const DEFAULT_SLUG_MAX_LEN: u32 = 50;
 
@@ -115,10 +139,14 @@ decl_storage! {
     BlogById get(blog_by_id): map T::BlogId => Option<Blog<T>>;
     PostById get(post_by_id): map T::PostId => Option<Post<T>>;
     CommentById get(comment_by_id): map T::CommentId => Option<Comment<T>>;
+    ReactionById get(reaction_by_id): map T::ReactionId => Option<Reaction<T>>;
 
     BlogIdsByOwner get(blog_ids_by_owner): map T::AccountId => Vec<T::BlogId>;
     PostIdsByBlogId get(post_ids_by_blog_id): map T::BlogId => Vec<T::PostId>;
     CommentIdsByPostId get(comment_ids_by_post_id): map T::PostId => Vec<T::CommentId>;
+
+    ReactionIdsByPostId get(reaction_ids_by_post_id): map T::PostId => Vec<T::ReactionId>;
+    ReactionIdsByCommentId get(reaction_ids_by_comment_id): map T::CommentId => Vec<T::ReactionId>;    
 
     BlogIdBySlug get(blog_id_by_slug): map Vec<u8> => Option<T::BlogId>;
     PostIdBySlug get(post_id_by_slug): map Vec<u8> => Option<T::PostId>;
@@ -126,6 +154,7 @@ decl_storage! {
     NextBlogId get(next_blog_id): T::BlogId = T::BlogId::sa(1);
     NextPostId get(next_post_id): T::PostId = T::PostId::sa(1);
     NextCommentId get(next_comment_id): T::CommentId = T::CommentId::sa(1);
+    NextReactionId get(next_reaction_id): T::ReactionId = T::ReactionId::sa(1);
   }
 }
 
@@ -134,7 +163,8 @@ decl_event! {
     <T as system::Trait>::AccountId,
     <T as Trait>::BlogId,
     <T as Trait>::PostId,
-    <T as Trait>::CommentId
+    <T as Trait>::CommentId,
+    <T as Trait>::ReactionId
   {
     BlogCreated(AccountId, BlogId),
     BlogUpdated(AccountId, BlogId),
@@ -147,6 +177,12 @@ decl_event! {
     CommentCreated(AccountId, CommentId),
     CommentUpdated(AccountId, CommentId),
     CommentDeleted(AccountId, CommentId),
+
+    PostReactionCreated(AccountId, PostId, ReactionId),
+    PostReactionDeleted(AccountId, PostId, ReactionId),
+
+    CommentReactionCreated(AccountId, CommentId, ReactionId),
+    CommentReactionDeleted(AccountId, CommentId, ReactionId),
   }
 }
 
@@ -251,6 +287,42 @@ decl_module! {
       <CommentIdsByPostId<T>>::mutate(post_id, |ids| ids.push(comment_id));
       <NextCommentId<T>>::mutate(|n| { *n += T::CommentId::sa(1); });
       Self::deposit_event(RawEvent::CommentCreated(owner.clone(), comment_id));
+    }
+
+    fn add_post_reaction(origin, post_id: T::PostId, kind: ReactionKind) {
+      let owner = ensure_signed(origin)?;
+
+      ensure!(<PostById<T>>::exists(post_id), "Unknown post id");
+
+      let reaction_id = Self::next_reaction_id();
+      let new_reaction: Reaction<T> = Reaction {
+        id: reaction_id,
+        created: Self::new_change(owner.clone()),
+        kind
+      };
+
+      <ReactionById<T>>::insert(reaction_id, new_reaction);
+      <ReactionIdsByPostId<T>>::mutate(post_id, |ids| ids.push(reaction_id));
+      <NextReactionId<T>>::mutate(|n| { *n += T::ReactionId::sa(1); });
+      Self::deposit_event(RawEvent::PostReactionCreated(owner.clone(), post_id, reaction_id));
+    }
+
+    fn add_comment_reaction(origin, comment_id: T::CommentId, kind: ReactionKind) {
+      let owner = ensure_signed(origin)?;
+
+      ensure!(<CommentById<T>>::exists(comment_id), "Unknown comment id");
+
+      let reaction_id = Self::next_reaction_id();
+      let new_reaction: Reaction<T> = Reaction {
+        id: reaction_id,
+        created: Self::new_change(owner.clone()),
+        kind
+      };
+
+      <ReactionById<T>>::insert(reaction_id, new_reaction);
+      <ReactionIdsByCommentId<T>>::mutate(comment_id, |ids| ids.push(reaction_id));
+      <NextReactionId<T>>::mutate(|n| { *n += T::ReactionId::sa(1); });
+      Self::deposit_event(RawEvent::CommentReactionCreated(owner.clone(), comment_id, reaction_id));
     }
 
     fn update_blog(origin, blog_id: T::BlogId, update: BlogUpdate<T>) {
