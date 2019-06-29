@@ -27,7 +27,7 @@ pub trait Trait: system::Trait + timestamp::Trait + MaybeDebug {
 #[cfg_attr(feature = "std", derive(Debug))]
 #[derive(Clone, Encode, Decode, PartialEq)]
 pub struct Change<T: Trait> {
-  account: T::AccountId, // TODO rename to 'owner', also refactor in TypeScript code
+  account: T::AccountId,
   block: T::BlockNumber,
   time: T::Moment,
 }
