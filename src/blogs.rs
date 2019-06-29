@@ -45,6 +45,8 @@ pub struct Blog<T: Trait> {
   writers: Vec<T::AccountId>,
   slug: Vec<u8>,
   json: Vec<u8>,
+
+  posts_count: u16,
 }
 
 #[cfg_attr(feature = "std", derive(Debug))]
@@ -68,6 +70,10 @@ pub struct Post<T: Trait> {
   // TODO make slug optional for post or even remove it
   slug: Vec<u8>,
   json: Vec<u8>,
+
+  comments_count: u16,
+  upvotes_count: u16,
+  downvotes_count: u16,
 }
 
 #[cfg_attr(feature = "std", derive(Debug))]
@@ -89,6 +95,9 @@ pub struct Comment<T: Trait> {
 
   // Can be updated by the owner:
   json: Vec<u8>,
+
+  upvotes_count: u16,
+  downvotes_count: u16,
 }
 
 #[cfg_attr(feature = "std", derive(Debug))]
@@ -216,7 +225,8 @@ decl_module! {
         updated: None,
         writers: vec![],
         slug: slug.clone(),
-        json
+        json,
+        posts_count: 0
       };
 
       <BlogById<T>>::insert(blog_id, new_blog);
@@ -230,7 +240,7 @@ decl_module! {
     fn create_post(origin, blog_id: T::BlogId, slug: Vec<u8>, json: Vec<u8>) {
       let owner = ensure_signed(origin)?;
 
-      ensure!(<BlogById<T>>::exists(blog_id), "Unknown blog id");
+      let mut blog = Self::blog_by_id(blog_id).ok_or("Blog was not found by id")?;
 
       ensure!(slug.len() >= Self::slug_min_len() as usize, "Post slug is too short");
       ensure!(slug.len() <= Self::slug_max_len() as usize, "Post slug is too long");
@@ -246,7 +256,10 @@ decl_module! {
         created: Self::new_change(owner.clone()),
         updated: None,
         slug: slug.clone(),
-        json
+        json,
+        comments_count: 0,
+        upvotes_count: 0,
+        downvotes_count: 0,
       };
 
       <PostById<T>>::insert(post_id, new_post);
@@ -254,13 +267,16 @@ decl_module! {
       <PostIdBySlug<T>>::insert(slug, post_id);
       <NextPostId<T>>::mutate(|n| { *n += T::PostId::sa(1); });
       Self::deposit_event(RawEvent::PostCreated(owner.clone(), post_id));
+
+      blog.posts_count += 1;
+      <BlogById<T>>::insert(blog_id, blog); // TODO maybe use mutate instead of insert?
     }
 
     // TODO use CommentUpdate to pass data
     fn create_comment(origin, post_id: T::PostId, parent_id: Option<T::CommentId>, json: Vec<u8>) {
       let owner = ensure_signed(origin)?;
 
-      ensure!(<PostById<T>>::exists(post_id), "Unknown post id");
+      let mut post = Self::post_by_id(post_id).ok_or("Post was not found by id")?;
 
       if let Some(id) = parent_id {
         ensure!(<CommentById<T>>::exists(id), "Unknown parent comment id");
@@ -276,49 +292,66 @@ decl_module! {
         post_id,
         created: Self::new_change(owner.clone()),
         updated: None,
-        json
+        json,
+        upvotes_count: 0,
+        downvotes_count: 0,
       };
 
       <CommentById<T>>::insert(comment_id, new_comment);
       <CommentIdsByPostId<T>>::mutate(post_id, |ids| ids.push(comment_id));
       <NextCommentId<T>>::mutate(|n| { *n += T::CommentId::sa(1); });
       Self::deposit_event(RawEvent::CommentCreated(owner.clone(), comment_id));
+
+      post.comments_count += 1;
+      <PostById<T>>::insert(post_id, post); // TODO maybe use mutate instead of insert?
     }
 
     fn add_post_reaction(origin, post_id: T::PostId, kind: ReactionKind) {
       let owner = ensure_signed(origin)?;
 
-      ensure!(<PostById<T>>::exists(post_id), "Unknown post id");
+      let mut post = Self::post_by_id(post_id).ok_or("Post was not found by id")?;
 
       let reaction_id = Self::next_reaction_id();
       let new_reaction: Reaction<T> = Reaction {
         id: reaction_id,
         created: Self::new_change(owner.clone()),
-        kind
+        kind: kind.clone()
       };
 
       <ReactionById<T>>::insert(reaction_id, new_reaction);
       <ReactionIdsByPostId<T>>::mutate(post_id, |ids| ids.push(reaction_id));
       <NextReactionId<T>>::mutate(|n| { *n += T::ReactionId::sa(1); });
       Self::deposit_event(RawEvent::PostReactionCreated(owner.clone(), post_id, reaction_id));
+
+      match kind {
+        ReactionKind::Downvote => post.downvotes_count +=1,
+        _ => post.upvotes_count +=1,
+      }
+      <PostById<T>>::insert(post_id, post); // TODO maybe use mutate instead of insert?
     }
 
     fn add_comment_reaction(origin, comment_id: T::CommentId, kind: ReactionKind) {
       let owner = ensure_signed(origin)?;
 
-      ensure!(<CommentById<T>>::exists(comment_id), "Unknown comment id");
+      let mut comment = Self::comment_by_id(comment_id).ok_or("Comment was not found by id")?;
 
       let reaction_id = Self::next_reaction_id();
       let new_reaction: Reaction<T> = Reaction {
         id: reaction_id,
         created: Self::new_change(owner.clone()),
-        kind
+        kind: kind.clone()
       };
 
       <ReactionById<T>>::insert(reaction_id, new_reaction);
       <ReactionIdsByCommentId<T>>::mutate(comment_id, |ids| ids.push(reaction_id));
       <NextReactionId<T>>::mutate(|n| { *n += T::ReactionId::sa(1); });
       Self::deposit_event(RawEvent::CommentReactionCreated(owner.clone(), comment_id, reaction_id));
+
+      match kind {
+        ReactionKind::Downvote => comment.downvotes_count +=1,
+        _ => comment.upvotes_count +=1,
+      }
+      <CommentById<T>>::insert(comment_id, comment); // TODO maybe use mutate instead of insert?
     }
 
     fn update_blog(origin, blog_id: T::BlogId, update: BlogUpdate<T>) {
