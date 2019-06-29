@@ -324,8 +324,8 @@ decl_module! {
       Self::deposit_event(RawEvent::PostReactionCreated(owner.clone(), post_id, reaction_id));
 
       match kind {
+        ReactionKind::Upvote => post.upvotes_count +=1,
         ReactionKind::Downvote => post.downvotes_count +=1,
-        _ => post.upvotes_count +=1,
       }
       <PostById<T>>::insert(post_id, post); // TODO maybe use mutate instead of insert?
     }
@@ -348,8 +348,8 @@ decl_module! {
       Self::deposit_event(RawEvent::CommentReactionCreated(owner.clone(), comment_id, reaction_id));
 
       match kind {
+        ReactionKind::Upvote => comment.upvotes_count +=1,
         ReactionKind::Downvote => comment.downvotes_count +=1,
-        _ => comment.upvotes_count +=1,
       }
       <CommentById<T>>::insert(comment_id, comment); // TODO maybe use mutate instead of insert?
     }
