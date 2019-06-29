@@ -347,7 +347,7 @@ decl_module! {
       if let Some(slug) = update.slug {
         if slug != blog.slug {
           // TODO validate slug.
-          ensure!(!<PostIdBySlug<T>>::exists(slug.clone()), "Post slug is not unique");
+          ensure!(!<BlogIdBySlug<T>>::exists(slug.clone()), "Blog slug is not unique");
           <BlogIdBySlug<T>>::remove(blog.slug);
           <BlogIdBySlug<T>>::insert(slug.clone(), blog_id);
           blog.slug = slug;
