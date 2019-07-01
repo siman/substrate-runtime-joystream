@@ -496,6 +496,38 @@ decl_module! {
     
     // TODO fn delete_comment(origin, comment_id: T::CommentId) {}
 
+    fn delete_post_reaction(origin, post_id: T::PostId, reaction_id: T::ReactionId) {
+      let owner = ensure_signed(origin)?;
+      
+      let reaction = Self::reaction_by_id(reaction_id).ok_or("Reaction was not found by id")?;
+
+      ensure!(<PostById<T>>::exists(post_id), "Unknown post id");
+      ensure!(owner == reaction.created.account, "Only reaction owner can delete their reaction");
+
+      <ReactionIdsByPostId<T>>::mutate(post_id, |ids| {
+        if let Some(index) = ids.iter().position(|x| *x == reaction_id) {
+          ids.swap_remove(index);
+        }
+      });
+      Self::deposit_event(RawEvent::PostReactionDeleted(owner.clone(), post_id, reaction_id));
+    }
+
+    fn delete_comment_reaction(origin, comment_id: T::CommentId, reaction_id: T::ReactionId) {
+      let owner = ensure_signed(origin)?;
+      
+      let reaction = Self::reaction_by_id(reaction_id).ok_or("Reaction was not found by id")?;
+
+      ensure!(<CommentById<T>>::exists(comment_id), "Unknown comment id");
+      ensure!(owner == reaction.created.account, "Only reaction owner can delete their reaction");
+
+      <ReactionIdsByCommentId<T>>::mutate(comment_id, |ids| {
+        if let Some(index) = ids.iter().position(|x| *x == reaction_id) {
+          ids.swap_remove(index);
+        }
+      });
+      Self::deposit_event(RawEvent::CommentReactionDeleted(owner.clone(), comment_id, reaction_id));
+    }
+
     // TODO spend some tokens on: create/update a blog/post/comment.
   }
 }
