@@ -513,6 +513,7 @@ decl_module! {
           }
 
           <PostById<T>>::insert(post_id, post); // TODO maybe use mutate instead of insert?
+          <ReactionById<T>>::remove(reaction_id);
           Self::deposit_event(RawEvent::PostReactionDeleted(owner.clone(), post_id, reaction_id));
         }
       });
@@ -535,6 +536,7 @@ decl_module! {
           }
           
           <CommentById<T>>::insert(comment_id, comment); // TODO maybe use mutate instead of insert?
+          <ReactionById<T>>::remove(reaction_id);
           Self::deposit_event(RawEvent::CommentReactionDeleted(owner.clone(), comment_id, reaction_id));
         }
       });
