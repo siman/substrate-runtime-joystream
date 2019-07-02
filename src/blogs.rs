@@ -500,32 +500,44 @@ decl_module! {
       let owner = ensure_signed(origin)?;
       
       let reaction = Self::reaction_by_id(reaction_id).ok_or("Reaction was not found by id")?;
-
-      ensure!(<PostById<T>>::exists(post_id), "Unknown post id");
+      let mut post = Self::post_by_id(post_id).ok_or("Post was not found by id")?;
       ensure!(owner == reaction.created.account, "Only reaction owner can delete their reaction");
 
       <ReactionIdsByPostId<T>>::mutate(post_id, |ids| {
         if let Some(index) = ids.iter().position(|x| *x == reaction_id) {
           ids.swap_remove(index);
+
+          match reaction.kind {
+            ReactionKind::Upvote => post.upvotes_count -= 1,
+            ReactionKind::Downvote => post.downvotes_count -= 1,
+          }
+
+          <PostById<T>>::insert(post_id, post); // TODO maybe use mutate instead of insert?
+          Self::deposit_event(RawEvent::PostReactionDeleted(owner.clone(), post_id, reaction_id));
         }
       });
-      Self::deposit_event(RawEvent::PostReactionDeleted(owner.clone(), post_id, reaction_id));
     }
 
     fn delete_comment_reaction(origin, comment_id: T::CommentId, reaction_id: T::ReactionId) {
       let owner = ensure_signed(origin)?;
       
       let reaction = Self::reaction_by_id(reaction_id).ok_or("Reaction was not found by id")?;
-
-      ensure!(<CommentById<T>>::exists(comment_id), "Unknown comment id");
+      let mut comment = Self::comment_by_id(comment_id).ok_or("Comment was not found by id")?;
       ensure!(owner == reaction.created.account, "Only reaction owner can delete their reaction");
 
       <ReactionIdsByCommentId<T>>::mutate(comment_id, |ids| {
         if let Some(index) = ids.iter().position(|x| *x == reaction_id) {
           ids.swap_remove(index);
+
+          match reaction.kind {
+            ReactionKind::Upvote => comment.upvotes_count -= 1,
+            ReactionKind::Downvote => comment.downvotes_count -= 1,
+          }
+          
+          <CommentById<T>>::insert(comment_id, comment); // TODO maybe use mutate instead of insert?
+          Self::deposit_event(RawEvent::CommentReactionDeleted(owner.clone(), comment_id, reaction_id));
         }
       });
-      Self::deposit_event(RawEvent::CommentReactionDeleted(owner.clone(), comment_id, reaction_id));
     }
 
     // TODO spend some tokens on: create/update a blog/post/comment.
