@@ -1,7 +1,7 @@
 use rstd::prelude::*;
 use parity_codec::Codec;
 use parity_codec_derive::{Encode, Decode};
-use srml_support::{StorageMap, StorageValue, decl_module, decl_storage, decl_event, ensure, Parameter};
+use srml_support::{StorageMap, StorageValue, decl_module, decl_storage, decl_event, ensure, fail, Parameter};
 use runtime_primitives::traits::{SimpleArithmetic, As, Member, MaybeDebug, MaybeSerializeDebug};
 use system::{self, ensure_signed};
 use runtime_io::print;
@@ -503,6 +503,7 @@ decl_module! {
       let mut post = Self::post_by_id(post_id).ok_or("Post was not found by id")?;
       ensure!(owner == reaction.created.account, "Only reaction owner can delete their reaction");
 
+      let mut reaction_found = false;
       <ReactionIdsByPostId<T>>::mutate(post_id, |ids| {
         if let Some(index) = ids.iter().position(|x| *x == reaction_id) {
           ids.swap_remove(index);
@@ -515,8 +516,10 @@ decl_module! {
           <PostById<T>>::insert(post_id, post); // TODO maybe use mutate instead of insert?
           <ReactionById<T>>::remove(reaction_id);
           Self::deposit_event(RawEvent::PostReactionDeleted(owner.clone(), post_id, reaction_id));
+          reaction_found = true;
         }
       });
+      ensure!(reaction_found, "Reaction is not related to a post");
     }
 
     fn delete_comment_reaction(origin, comment_id: T::CommentId, reaction_id: T::ReactionId) {
@@ -526,6 +529,7 @@ decl_module! {
       let mut comment = Self::comment_by_id(comment_id).ok_or("Comment was not found by id")?;
       ensure!(owner == reaction.created.account, "Only reaction owner can delete their reaction");
 
+      let mut reaction_found = false;
       <ReactionIdsByCommentId<T>>::mutate(comment_id, |ids| {
         if let Some(index) = ids.iter().position(|x| *x == reaction_id) {
           ids.swap_remove(index);
@@ -538,8 +542,10 @@ decl_module! {
           <CommentById<T>>::insert(comment_id, comment); // TODO maybe use mutate instead of insert?
           <ReactionById<T>>::remove(reaction_id);
           Self::deposit_event(RawEvent::CommentReactionDeleted(owner.clone(), comment_id, reaction_id));
+          reaction_found = true;
         }
       });
+      ensure!(reaction_found, "Reaction is not related to a comment");
     }
 
     // TODO spend some tokens on: create/update a blog/post/comment.
