@@ -155,8 +155,8 @@ decl_storage! {
 
     ReactionIdsByPostId get(reaction_ids_by_post_id): map T::PostId => Vec<T::ReactionId>;
     ReactionIdsByCommentId get(reaction_ids_by_comment_id): map T::CommentId => Vec<T::ReactionId>;
-    ReactionIdsByAccountPostId get(reaction_ids_by_accountpost_id): map (T::AccountId, T::PostId) => T::ReactionId;
-    ReactionIdsByAccountCommentId get(reaction_ids_by_accountcomment_id): map (T::AccountId, T::CommentId) => T::ReactionId;
+    PostReactionIdByAccount get(reaction_ids_by_accountpost_id): map (T::AccountId, T::PostId) => T::ReactionId;
+    CommentReactionIdByAccount get(reaction_ids_by_accountcomment_id): map (T::AccountId, T::CommentId) => T::ReactionId;
 
     BlogIdBySlug get(blog_id_by_slug): map Vec<u8> => Option<T::BlogId>;
     PostIdBySlug get(post_id_by_slug): map Vec<u8> => Option<T::PostId>;
@@ -308,12 +308,12 @@ decl_module! {
       <PostById<T>>::insert(post_id, post); // TODO maybe use mutate instead of insert?
     }
 
-    fn add_post_reaction(origin, post_id: T::PostId, kind: ReactionKind) {
+    fn create_post_reaction(origin, post_id: T::PostId, kind: ReactionKind) {
       let owner = ensure_signed(origin)?;
 
       let mut post = Self::post_by_id(post_id).ok_or("Post was not found by id")?;
 
-      if <ReactionIdsByAccountPostId<T>>::exists((owner.clone(), post_id)) {
+      if <PostReactionIdByAccount<T>>::exists((owner.clone(), post_id)) {
         fail!("Account has already reacted to this post");
         //TODO update reaction whether it's kind differs from existing one
       }
@@ -328,7 +328,7 @@ decl_module! {
         <ReactionById<T>>::insert(reaction_id, new_reaction);
         <ReactionIdsByPostId<T>>::mutate(post_id, |ids| ids.push(reaction_id));
         <NextReactionId<T>>::mutate(|n| { *n += T::ReactionId::sa(1); });
-        <ReactionIdsByAccountPostId<T>>::insert((owner.clone(), post_id), reaction_id);
+        <PostReactionIdByAccount<T>>::insert((owner.clone(), post_id), reaction_id);
         Self::deposit_event(RawEvent::PostReactionCreated(owner.clone(), post_id, reaction_id));
 
         match kind {
@@ -339,12 +339,12 @@ decl_module! {
       }
     }
 
-    fn add_comment_reaction(origin, comment_id: T::CommentId, kind: ReactionKind) {
+    fn create_comment_reaction(origin, comment_id: T::CommentId, kind: ReactionKind) {
       let owner = ensure_signed(origin)?;
 
       let mut comment = Self::comment_by_id(comment_id).ok_or("Comment was not found by id")?;
 
-      if <ReactionIdsByAccountCommentId<T>>::exists((owner.clone(), comment_id)) {
+      if <CommentReactionIdByAccount<T>>::exists((owner.clone(), comment_id)) {
         fail!("Account has already reacted to this post");
         //TODO update reaction whether it's kind differs from existing one
       }
@@ -359,7 +359,7 @@ decl_module! {
         <ReactionById<T>>::insert(reaction_id, new_reaction);
         <ReactionIdsByCommentId<T>>::mutate(comment_id, |ids| ids.push(reaction_id));
         <NextReactionId<T>>::mutate(|n| { *n += T::ReactionId::sa(1); });
-        <ReactionIdsByAccountCommentId<T>>::insert((owner.clone(), comment_id), reaction_id);
+        <CommentReactionIdByAccount<T>>::insert((owner.clone(), comment_id), reaction_id);
         Self::deposit_event(RawEvent::CommentReactionCreated(owner.clone(), comment_id, reaction_id));
 
         match kind {
@@ -531,7 +531,7 @@ decl_module! {
 
           <PostById<T>>::insert(post_id, post); // TODO maybe use mutate instead of insert?
           <ReactionById<T>>::remove(reaction_id);
-          <ReactionIdsByAccountPostId<T>>::remove((owner.clone(), post_id));
+          <PostReactionIdByAccount<T>>::remove((owner.clone(), post_id));
           Self::deposit_event(RawEvent::PostReactionDeleted(owner.clone(), post_id, reaction_id));
           reaction_found = true;
         }
@@ -558,7 +558,7 @@ decl_module! {
           
           <CommentById<T>>::insert(comment_id, comment); // TODO maybe use mutate instead of insert?
           <ReactionById<T>>::remove(reaction_id);
-          <ReactionIdsByAccountCommentId<T>>::remove((owner.clone(), comment_id));
+          <CommentReactionIdByAccount<T>>::remove((owner.clone(), comment_id));
           Self::deposit_event(RawEvent::CommentReactionDeleted(owner.clone(), comment_id, reaction_id));
           reaction_found = true;
         }
