@@ -318,16 +318,9 @@ decl_module! {
         //TODO update reaction whether it's kind differs from existing one
       }
       else {
-        let reaction_id = Self::next_reaction_id();
-        let new_reaction: Reaction<T> = Reaction {
-          id: reaction_id,
-          created: Self::new_change(owner.clone()),
-          kind: kind.clone()
-        };
+        let reaction_id = Self::new_reaction(owner.clone(), kind.clone());
 
-        <ReactionById<T>>::insert(reaction_id, new_reaction);
         <ReactionIdsByPostId<T>>::mutate(post_id, |ids| ids.push(reaction_id));
-        <NextReactionId<T>>::mutate(|n| { *n += T::ReactionId::sa(1); });
         <PostReactionIdByAccount<T>>::insert((owner.clone(), post_id), reaction_id);
         Self::deposit_event(RawEvent::PostReactionCreated(owner.clone(), post_id, reaction_id));
 
@@ -349,16 +342,9 @@ decl_module! {
         //TODO update reaction whether it's kind differs from existing one
       }
       else {
-        let reaction_id = Self::next_reaction_id();
-        let new_reaction: Reaction<T> = Reaction {
-          id: reaction_id,
-          created: Self::new_change(owner.clone()),
-          kind: kind.clone()
-        };
+        let reaction_id = Self::new_reaction(owner.clone(), kind.clone());
 
-        <ReactionById<T>>::insert(reaction_id, new_reaction);
         <ReactionIdsByCommentId<T>>::mutate(comment_id, |ids| ids.push(reaction_id));
-        <NextReactionId<T>>::mutate(|n| { *n += T::ReactionId::sa(1); });
         <CommentReactionIdByAccount<T>>::insert((owner.clone(), comment_id), reaction_id);
         Self::deposit_event(RawEvent::CommentReactionCreated(owner.clone(), comment_id, reaction_id));
 
@@ -577,5 +563,19 @@ impl<T: Trait> Module<T> {
       block: <system::Module<T>>::block_number(),
       time: <timestamp::Module<T>>::now(),
     }
+  }
+
+  fn new_reaction(account: T::AccountId, kind: ReactionKind) -> T::ReactionId {
+    let reaction_id = Self::next_reaction_id();
+    let new_reaction: Reaction<T> = Reaction {
+      id: reaction_id,
+      created: Self::new_change(account),
+      kind
+    };
+
+    <ReactionById<T>>::insert(reaction_id, new_reaction);
+    <NextReactionId<T>>::mutate(|n| { *n += T::ReactionId::sa(1); });
+
+    reaction_id
   }
 }
