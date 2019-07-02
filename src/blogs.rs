@@ -1,7 +1,7 @@
 use rstd::prelude::*;
 use parity_codec::Codec;
 use parity_codec_derive::{Encode, Decode};
-use srml_support::{StorageMap, StorageValue, decl_module, decl_storage, decl_event, ensure, Parameter};
+use srml_support::{StorageMap, StorageValue, decl_module, decl_storage, decl_event, ensure, fail, Parameter};
 use runtime_primitives::traits::{SimpleArithmetic, As, Member, MaybeDebug, MaybeSerializeDebug};
 use system::{self, ensure_signed};
 use runtime_io::print;
@@ -155,6 +155,8 @@ decl_storage! {
 
     ReactionIdsByPostId get(reaction_ids_by_post_id): map T::PostId => Vec<T::ReactionId>;
     ReactionIdsByCommentId get(reaction_ids_by_comment_id): map T::CommentId => Vec<T::ReactionId>;
+    ReactionIdsByAccountPostId get(reaction_ids_by_accountpost_id): map (T::AccountId, T::PostId) => T::ReactionId;
+    ReactionIdsByAccountCommentId get(reaction_ids_by_accountcomment_id): map (T::AccountId, T::CommentId) => T::ReactionId;
 
     BlogIdBySlug get(blog_id_by_slug): map Vec<u8> => Option<T::BlogId>;
     PostIdBySlug get(post_id_by_slug): map Vec<u8> => Option<T::PostId>;
@@ -311,23 +313,30 @@ decl_module! {
 
       let mut post = Self::post_by_id(post_id).ok_or("Post was not found by id")?;
 
-      let reaction_id = Self::next_reaction_id();
-      let new_reaction: Reaction<T> = Reaction {
-        id: reaction_id,
-        created: Self::new_change(owner.clone()),
-        kind: kind.clone()
-      };
-
-      <ReactionById<T>>::insert(reaction_id, new_reaction);
-      <ReactionIdsByPostId<T>>::mutate(post_id, |ids| ids.push(reaction_id));
-      <NextReactionId<T>>::mutate(|n| { *n += T::ReactionId::sa(1); });
-      Self::deposit_event(RawEvent::PostReactionCreated(owner.clone(), post_id, reaction_id));
-
-      match kind {
-        ReactionKind::Upvote => post.upvotes_count += 1,
-        ReactionKind::Downvote => post.downvotes_count += 1,
+      if <ReactionIdsByAccountPostId<T>>::exists((owner.clone(), post_id)) {
+        fail!("Account has already reacted to this post");
+        //TODO update reaction whether it's kind differs from existing one
       }
-      <PostById<T>>::insert(post_id, post); // TODO maybe use mutate instead of insert?
+      else {
+        let reaction_id = Self::next_reaction_id();
+        let new_reaction: Reaction<T> = Reaction {
+          id: reaction_id,
+          created: Self::new_change(owner.clone()),
+          kind: kind.clone()
+        };
+
+        <ReactionById<T>>::insert(reaction_id, new_reaction);
+        <ReactionIdsByPostId<T>>::mutate(post_id, |ids| ids.push(reaction_id));
+        <NextReactionId<T>>::mutate(|n| { *n += T::ReactionId::sa(1); });
+        <ReactionIdsByAccountPostId<T>>::insert((owner.clone(), post_id), reaction_id);
+        Self::deposit_event(RawEvent::PostReactionCreated(owner.clone(), post_id, reaction_id));
+
+        match kind {
+          ReactionKind::Upvote => post.upvotes_count += 1,
+          ReactionKind::Downvote => post.downvotes_count += 1,
+        }
+        <PostById<T>>::insert(post_id, post); // TODO maybe use mutate instead of insert?
+      }
     }
 
     fn add_comment_reaction(origin, comment_id: T::CommentId, kind: ReactionKind) {
@@ -335,23 +344,30 @@ decl_module! {
 
       let mut comment = Self::comment_by_id(comment_id).ok_or("Comment was not found by id")?;
 
-      let reaction_id = Self::next_reaction_id();
-      let new_reaction: Reaction<T> = Reaction {
-        id: reaction_id,
-        created: Self::new_change(owner.clone()),
-        kind: kind.clone()
-      };
-
-      <ReactionById<T>>::insert(reaction_id, new_reaction);
-      <ReactionIdsByCommentId<T>>::mutate(comment_id, |ids| ids.push(reaction_id));
-      <NextReactionId<T>>::mutate(|n| { *n += T::ReactionId::sa(1); });
-      Self::deposit_event(RawEvent::CommentReactionCreated(owner.clone(), comment_id, reaction_id));
-
-      match kind {
-        ReactionKind::Upvote => comment.upvotes_count += 1,
-        ReactionKind::Downvote => comment.downvotes_count += 1,
+      if <ReactionIdsByAccountCommentId<T>>::exists((owner.clone(), comment_id)) {
+        fail!("Account has already reacted to this post");
+        //TODO update reaction whether it's kind differs from existing one
       }
-      <CommentById<T>>::insert(comment_id, comment); // TODO maybe use mutate instead of insert?
+      else {
+        let reaction_id = Self::next_reaction_id();
+        let new_reaction: Reaction<T> = Reaction {
+          id: reaction_id,
+          created: Self::new_change(owner.clone()),
+          kind: kind.clone()
+        };
+
+        <ReactionById<T>>::insert(reaction_id, new_reaction);
+        <ReactionIdsByCommentId<T>>::mutate(comment_id, |ids| ids.push(reaction_id));
+        <NextReactionId<T>>::mutate(|n| { *n += T::ReactionId::sa(1); });
+        <ReactionIdsByAccountCommentId<T>>::insert((owner.clone(), comment_id), reaction_id);
+        Self::deposit_event(RawEvent::CommentReactionCreated(owner.clone(), comment_id, reaction_id));
+
+        match kind {
+          ReactionKind::Upvote => comment.upvotes_count += 1,
+          ReactionKind::Downvote => comment.downvotes_count += 1,
+        }
+        <CommentById<T>>::insert(comment_id, comment); // TODO maybe use mutate instead of insert?
+      }
     }
 
     fn update_blog(origin, blog_id: T::BlogId, update: BlogUpdate<T>) {
@@ -515,6 +531,7 @@ decl_module! {
 
           <PostById<T>>::insert(post_id, post); // TODO maybe use mutate instead of insert?
           <ReactionById<T>>::remove(reaction_id);
+          <ReactionIdsByAccountPostId<T>>::remove((owner.clone(), post_id));
           Self::deposit_event(RawEvent::PostReactionDeleted(owner.clone(), post_id, reaction_id));
           reaction_found = true;
         }
@@ -541,6 +558,7 @@ decl_module! {
           
           <CommentById<T>>::insert(comment_id, comment); // TODO maybe use mutate instead of insert?
           <ReactionById<T>>::remove(reaction_id);
+          <ReactionIdsByAccountCommentId<T>>::remove((owner.clone(), comment_id));
           Self::deposit_event(RawEvent::CommentReactionDeleted(owner.clone(), comment_id, reaction_id));
           reaction_found = true;
         }
