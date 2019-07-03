@@ -500,13 +500,15 @@ decl_module! {
       ensure!(reaction.kind != kind, "Current account reaction is the same as requested");
       ensure!(owner == reaction.created.account, "Only reaction owner can update their reaction");
 
-      match reaction.kind {
-        ReactionKind::Upvote => post.upvotes_count -= 1,
-        ReactionKind::Downvote => post.downvotes_count -= 1,
-      }
       match kind {
-        ReactionKind::Upvote => post.upvotes_count += 1,
-        ReactionKind::Downvote => post.downvotes_count += 1,
+        ReactionKind::Upvote => {
+          post.upvotes_count += 1;
+          post.downvotes_count -= 1;
+        },
+        ReactionKind::Downvote => {
+          post.downvotes_count += 1;
+          post.upvotes_count -= 1;
+        },
       }
 
       reaction.kind = kind;
@@ -525,13 +527,15 @@ decl_module! {
       ensure!(reaction.kind != kind, "Current account reaction is the same as requested");
       ensure!(owner == reaction.created.account, "Only reaction owner can update their reaction");
 
-      match reaction.kind {
-        ReactionKind::Upvote => comment.upvotes_count -= 1,
-        ReactionKind::Downvote => comment.downvotes_count -= 1,
-      }
       match kind {
-        ReactionKind::Upvote => comment.upvotes_count += 1,
-        ReactionKind::Downvote => comment.downvotes_count += 1,
+        ReactionKind::Upvote => {
+          comment.upvotes_count += 1;
+          comment.downvotes_count -= 1;
+        },
+        ReactionKind::Downvote => {
+          comment.downvotes_count += 1;
+          comment.upvotes_count -= 1;
+        },
       }
 
       reaction.kind = kind;
