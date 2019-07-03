@@ -124,6 +124,7 @@ impl Default for ReactionKind {
 pub struct Reaction<T: Trait> {
   id: T::ReactionId,
   created: Change<T>,
+  updated: Option<Change<T>>,
   kind: ReactionKind,
 }
 
@@ -189,9 +190,11 @@ decl_event! {
     CommentDeleted(AccountId, CommentId),
 
     PostReactionCreated(AccountId, PostId, ReactionId),
+    PostReactionUpdated(AccountId, PostId, ReactionId),
     PostReactionDeleted(AccountId, PostId, ReactionId),
 
     CommentReactionCreated(AccountId, CommentId, ReactionId),
+    CommentReactionUpdated(AccountId, CommentId, ReactionId),
     CommentReactionDeleted(AccountId, CommentId, ReactionId),
   }
 }
@@ -315,7 +318,6 @@ decl_module! {
 
       if <PostReactionIdByAccount<T>>::exists((owner.clone(), post_id)) {
         fail!("Account has already reacted to this post");
-        //TODO update reaction whether it's kind differs from existing one
       }
       else {
         let reaction_id = Self::new_reaction(owner.clone(), kind.clone());
@@ -339,7 +341,6 @@ decl_module! {
 
       if <CommentReactionIdByAccount<T>>::exists((owner.clone(), comment_id)) {
         fail!("Account has already reacted to this post");
-        //TODO update reaction whether it's kind differs from existing one
       }
       else {
         let reaction_id = Self::new_reaction(owner.clone(), kind.clone());
@@ -490,6 +491,56 @@ decl_module! {
       Self::deposit_event(RawEvent::CommentUpdated(owner.clone(), comment_id));
     }
 
+    fn update_post_reaction(origin, post_id: T::PostId, reaction_id: T::ReactionId, kind: ReactionKind) {
+      let owner = ensure_signed(origin)?;
+
+      let mut reaction = Self::reaction_by_id(reaction_id).ok_or("Reaction was not found by id")?;
+      let mut post = Self::post_by_id(post_id).ok_or("Post was not found by id")?;
+      
+      ensure!(reaction.kind != kind, "Current account reaction is the same as requested");
+      ensure!(owner == reaction.created.account, "Only reaction owner can update their reaction");
+
+      match reaction.kind {
+        ReactionKind::Upvote => post.upvotes_count -= 1,
+        ReactionKind::Downvote => post.downvotes_count -= 1,
+      }
+      match kind {
+        ReactionKind::Upvote => post.upvotes_count += 1,
+        ReactionKind::Downvote => post.downvotes_count += 1,
+      }
+
+      reaction.kind = kind;
+      reaction.updated = Some(Self::new_change(owner.clone()));
+
+      <ReactionById<T>>::insert(reaction_id, reaction);
+      Self::deposit_event(RawEvent::PostReactionUpdated(owner.clone(), post_id, reaction_id));
+    }
+
+    fn update_comment_reaction(origin, comment_id: T::CommentId, reaction_id: T::ReactionId, kind: ReactionKind) {
+      let owner = ensure_signed(origin)?;
+
+      let mut reaction = Self::reaction_by_id(reaction_id).ok_or("Reaction was not found by id")?;
+      let mut comment = Self::comment_by_id(comment_id).ok_or("Comment was not found by id")?;
+      
+      ensure!(reaction.kind != kind, "Current account reaction is the same as requested");
+      ensure!(owner == reaction.created.account, "Only reaction owner can update their reaction");
+
+      match reaction.kind {
+        ReactionKind::Upvote => comment.upvotes_count -= 1,
+        ReactionKind::Downvote => comment.downvotes_count -= 1,
+      }
+      match kind {
+        ReactionKind::Upvote => comment.upvotes_count += 1,
+        ReactionKind::Downvote => comment.downvotes_count += 1,
+      }
+
+      reaction.kind = kind;
+      reaction.updated = Some(Self::new_change(owner.clone()));
+
+      <ReactionById<T>>::insert(reaction_id, reaction);
+      Self::deposit_event(RawEvent::CommentReactionUpdated(owner.clone(), comment_id, reaction_id));
+    }
+
     // TODO fn delete_blog(origin, blog_id: T::BlogId) {
       // TODO only owner can delete
     // }
@@ -570,6 +621,7 @@ impl<T: Trait> Module<T> {
     let new_reaction: Reaction<T> = Reaction {
       id: reaction_id,
       created: Self::new_change(account),
+      updated: None,
       kind
     };
 
