@@ -162,8 +162,8 @@ decl_storage! {
     BlogIdBySlug get(blog_id_by_slug): map Vec<u8> => Option<T::BlogId>;
     PostIdBySlug get(post_id_by_slug): map Vec<u8> => Option<T::PostId>;
 
-    BlogsFollowedByAccount get(followed_blogs_by_account): map T::AccountId => Vec<T::BlogId>;
-    BlogFollowers get(following_accounts_on_blog): map T::BlogId => Vec<T::AccountId>;
+    BlogsFollowedByAccount get(blogs_followed_by_account): map T::AccountId => Vec<T::BlogId>;
+    BlogFollowers get(blog_followers): map T::BlogId => Vec<T::AccountId>;
 
     NextBlogId get(next_blog_id): T::BlogId = T::BlogId::sa(1);
     NextPostId get(next_post_id): T::PostId = T::PostId::sa(1);
