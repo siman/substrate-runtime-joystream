@@ -162,6 +162,9 @@ decl_storage! {
     BlogIdBySlug get(blog_id_by_slug): map Vec<u8> => Option<T::BlogId>;
     PostIdBySlug get(post_id_by_slug): map Vec<u8> => Option<T::PostId>;
 
+    BlogsFollowedByAccount get(followed_blogs_by_account): map T::AccountId => Vec<T::BlogId>;
+    BlogFollowers get(following_accounts_on_blog): map T::BlogId => Vec<T::AccountId>;
+
     NextBlogId get(next_blog_id): T::BlogId = T::BlogId::sa(1);
     NextPostId get(next_post_id): T::PostId = T::PostId::sa(1);
     NextCommentId get(next_comment_id): T::CommentId = T::CommentId::sa(1);
@@ -180,6 +183,9 @@ decl_event! {
     BlogCreated(AccountId, BlogId),
     BlogUpdated(AccountId, BlogId),
     BlogDeleted(AccountId, BlogId),
+
+    BlogFollowed(BlogId, AccountId),
+    BlogUnfollowed(BlogId, AccountId),
 
     PostCreated(AccountId, PostId),
     PostUpdated(AccountId, PostId),
@@ -238,7 +244,45 @@ decl_module! {
       <BlogIdsByOwner<T>>::mutate(owner.clone(), |ids| ids.push(blog_id));
       <BlogIdBySlug<T>>::insert(slug, blog_id);
       <NextBlogId<T>>::mutate(|n| { *n += T::BlogId::sa(1); });
+
+      <BlogsFollowedByAccount<T>>::mutate(owner.clone(), |ids| ids.push(blog_id));
+      <BlogFollowers<T>>::mutate(blog_id, |ids| ids.push(owner.clone()));
+
       Self::deposit_event(RawEvent::BlogCreated(owner.clone(), blog_id));
+    }
+
+    fn follow_blog(origin, blog_id: T::BlogId) {
+      let owner = ensure_signed(origin)?;
+
+      ensure!(<BlogById<T>>::exists(blog_id), "Unknown blog id");
+      ensure!(!<BlogsFollowedByAccount<T>>::get(owner.clone()).contains(&blog_id), "Account is already following this blog");
+
+      <BlogsFollowedByAccount<T>>::mutate(owner.clone(), |ids| ids.push(blog_id));
+      <BlogFollowers<T>>::mutate(blog_id, |ids| ids.push(owner.clone()));
+      Self::deposit_event(RawEvent::BlogFollowed(blog_id, owner.clone()));
+    }
+
+    fn unfollow_blog(origin, blog_id: T::BlogId) {
+      let owner = ensure_signed(origin)?;
+
+      ensure!(<BlogById<T>>::exists(blog_id), "Unknown blog id");
+
+      let mut blog_found = false;
+      <BlogsFollowedByAccount<T>>::mutate(owner.clone(), |ids| {
+        if let Some(index) = ids.iter().position(|x| *x == blog_id) {
+          ids.swap_remove(index);
+
+          <BlogsFollowedByAccount<T>>::mutate(owner.clone(), |ids| {
+            if let Some(index) = ids.iter().position(|x| *x == blog_id) {
+              ids.swap_remove(index);
+
+              Self::deposit_event(RawEvent::BlogUnfollowed(blog_id, owner.clone()));
+              blog_found = true;
+            }
+          });
+        }
+      });
+      ensure!(blog_found, "Account is not following this blog");
     }
 
     // TODO use PostUpdate to pass data
@@ -547,6 +591,7 @@ decl_module! {
 
     // TODO fn delete_blog(origin, blog_id: T::BlogId) {
       // TODO only owner can delete
+      // TODO unfollow all blog followers
     // }
     
     // TODO fn delete_post(origin, post_id: T::PostId) {}
