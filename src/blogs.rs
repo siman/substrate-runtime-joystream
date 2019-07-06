@@ -156,8 +156,8 @@ decl_storage! {
 
     ReactionIdsByPostId get(reaction_ids_by_post_id): map T::PostId => Vec<T::ReactionId>;
     ReactionIdsByCommentId get(reaction_ids_by_comment_id): map T::CommentId => Vec<T::ReactionId>;
-    PostReactionIdByAccount get(reaction_ids_by_accountpost_id): map (T::AccountId, T::PostId) => T::ReactionId;
-    CommentReactionIdByAccount get(reaction_ids_by_accountcomment_id): map (T::AccountId, T::CommentId) => T::ReactionId;
+    PostReactionIdByAccount get(post_reaction_id_by_account): map (T::AccountId, T::PostId) => T::ReactionId;
+    CommentReactionIdByAccount get(comment_reaction_id_by_account): map (T::AccountId, T::CommentId) => T::ReactionId;
 
     BlogIdBySlug get(blog_id_by_slug): map Vec<u8> => Option<T::BlogId>;
     PostIdBySlug get(post_id_by_slug): map Vec<u8> => Option<T::PostId>;
