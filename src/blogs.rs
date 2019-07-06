@@ -1,7 +1,7 @@
 use rstd::prelude::*;
 use parity_codec::Codec;
 use parity_codec_derive::{Encode, Decode};
-use srml_support::{StorageMap, StorageValue, decl_module, decl_storage, decl_event, ensure, fail, Parameter};
+use srml_support::{StorageMap, StorageValue, decl_module, decl_storage, decl_event, dispatch, ensure, fail, Parameter};
 use runtime_primitives::traits::{SimpleArithmetic, As, Member, MaybeDebug, MaybeSerializeDebug};
 use system::{self, ensure_signed};
 use runtime_io::print;
@@ -230,7 +230,6 @@ decl_module! {
       ensure!(json.len() <= Self::blog_max_len() as usize, "Blog JSON is too long");
 
       let blog_id = Self::next_blog_id();
-
       let new_blog: Blog<T> = Blog {
         id: blog_id,
         created: Self::new_change(owner.clone()),
@@ -245,47 +244,41 @@ decl_module! {
       <BlogIdsByOwner<T>>::mutate(owner.clone(), |ids| ids.push(blog_id));
       <BlogIdBySlug<T>>::insert(slug, blog_id);
       <NextBlogId<T>>::mutate(|n| { *n += T::BlogId::sa(1); });
-
-      Self::add_blog_follower(owner.clone(), blog_id);
-
       Self::deposit_event(RawEvent::BlogCreated(owner.clone(), blog_id));
+
+      // Blog creator automatically follows their blog:
+      Self::add_blog_follower(owner.clone(), blog_id);
     }
 
     fn follow_blog(origin, blog_id: T::BlogId) {
       let owner = ensure_signed(origin)?;
 
-      ensure!(<BlogById<T>>::exists(blog_id), "Unknown blog id");
+      Self::ensure_blog_exists(blog_id)?;
       ensure!(<BlogFollowedByAccount<T>>::exists((owner.clone(), blog_id)), "Account is already following this blog");
 
       Self::add_blog_follower(owner.clone(), blog_id);
-      Self::deposit_event(RawEvent::BlogFollowed(owner.clone(), blog_id));
     }
 
     fn unfollow_blog(origin, blog_id: T::BlogId) {
       let owner = ensure_signed(origin)?;
 
-      ensure!(<BlogById<T>>::exists(blog_id), "Unknown blog id");
+      Self::ensure_blog_exists(blog_id)?;
 
-      let mut blog_found = false;
-      <BlogsFollowedByAccount<T>>::mutate(owner.clone(), |ids| {
-        if let Some(index) = ids.iter().position(|x| *x == blog_id) {
-          ids.swap_remove(index);
-
-          <BlogFollowers<T>>::mutate(blog_id, |ids| {
-            if let Some(index) = ids.iter().position(|x| *x == owner.clone()) {
-              ids.swap_remove(index);
-
-              Self::deposit_event(RawEvent::BlogUnfollowed(owner.clone(), blog_id));
-              blog_found = true;
-            }
-          });
+      <BlogsFollowedByAccount<T>>::mutate(owner.clone(), |blog_ids| {
+        if let Some(index) = blog_ids.iter().position(|x| *x == blog_id) {
+          blog_ids.swap_remove(index);
         }
       });
-      ensure!(blog_found, "Account is not following this blog");
+      <BlogFollowers<T>>::mutate(blog_id, |account_ids| {
+        if let Some(index) = account_ids.iter().position(|x| *x == owner.clone()) {
+          account_ids.swap_remove(index);
+        }
+      });
       <BlogFollowedByAccount<T>>::remove((owner.clone(), blog_id));
+      Self::deposit_event(RawEvent::BlogUnfollowed(owner.clone(), blog_id));
     }
 
-    // TODO use PostUpdate to pass data
+    // TODO use PostUpdate to pass data?
     fn create_post(origin, blog_id: T::BlogId, slug: Vec<u8>, json: Vec<u8>) {
       let owner = ensure_signed(origin)?;
 
@@ -298,7 +291,6 @@ decl_module! {
       ensure!(json.len() <= Self::post_max_len() as usize, "Post JSON is too long");
 
       let post_id = Self::next_post_id();
-
       let new_post: Post<T> = Post {
         id: post_id,
         blog_id,
@@ -321,7 +313,7 @@ decl_module! {
       <BlogById<T>>::insert(blog_id, blog); // TODO maybe use mutate instead of insert?
     }
 
-    // TODO use CommentUpdate to pass data
+    // TODO use CommentUpdate to pass data?
     fn create_comment(origin, post_id: T::PostId, parent_id: Option<T::CommentId>, json: Vec<u8>) {
       let owner = ensure_signed(origin)?;
 
@@ -334,7 +326,6 @@ decl_module! {
       ensure!(json.len() <= Self::comment_max_len() as usize, "Comment JSON is too long");
 
       let comment_id = Self::next_comment_id();
-
       let new_comment: Comment<T> = Comment {
         id: comment_id,
         parent_id,
@@ -358,47 +349,45 @@ decl_module! {
     fn create_post_reaction(origin, post_id: T::PostId, kind: ReactionKind) {
       let owner = ensure_signed(origin)?;
 
+      ensure!(
+        !<PostReactionIdByAccount<T>>::exists((owner.clone(), post_id)),
+        "Account has already reacted to this post. To change a kind of reaction call update_post_reaction()"
+      );
+
       let mut post = Self::post_by_id(post_id).ok_or("Post was not found by id")?;
+      let reaction_id = Self::new_reaction(owner.clone(), kind.clone());
 
-      if <PostReactionIdByAccount<T>>::exists((owner.clone(), post_id)) {
-        fail!("Account has already reacted to this post");
+      <ReactionIdsByPostId<T>>::mutate(post_id, |ids| ids.push(reaction_id));
+      <PostReactionIdByAccount<T>>::insert((owner.clone(), post_id), reaction_id);
+      Self::deposit_event(RawEvent::PostReactionCreated(owner.clone(), post_id, reaction_id));
+
+      match kind {
+        ReactionKind::Upvote => post.upvotes_count += 1,
+        ReactionKind::Downvote => post.downvotes_count += 1,
       }
-      else {
-        let reaction_id = Self::new_reaction(owner.clone(), kind.clone());
-
-        <ReactionIdsByPostId<T>>::mutate(post_id, |ids| ids.push(reaction_id));
-        <PostReactionIdByAccount<T>>::insert((owner.clone(), post_id), reaction_id);
-        Self::deposit_event(RawEvent::PostReactionCreated(owner.clone(), post_id, reaction_id));
-
-        match kind {
-          ReactionKind::Upvote => post.upvotes_count += 1,
-          ReactionKind::Downvote => post.downvotes_count += 1,
-        }
-        <PostById<T>>::insert(post_id, post); // TODO maybe use mutate instead of insert?
-      }
+      <PostById<T>>::insert(post_id, post); // TODO maybe use mutate instead of insert?
     }
 
     fn create_comment_reaction(origin, comment_id: T::CommentId, kind: ReactionKind) {
       let owner = ensure_signed(origin)?;
 
+      ensure!(
+        !<CommentReactionIdByAccount<T>>::exists((owner.clone(), comment_id)),
+        "Account has already reacted to this comment. To change a kind of reaction call update_comment_reaction()"
+      );
+
       let mut comment = Self::comment_by_id(comment_id).ok_or("Comment was not found by id")?;
+      let reaction_id = Self::new_reaction(owner.clone(), kind.clone());
 
-      if <CommentReactionIdByAccount<T>>::exists((owner.clone(), comment_id)) {
-        fail!("Account has already reacted to this post");
+      <ReactionIdsByCommentId<T>>::mutate(comment_id, |ids| ids.push(reaction_id));
+      <CommentReactionIdByAccount<T>>::insert((owner.clone(), comment_id), reaction_id);
+      Self::deposit_event(RawEvent::CommentReactionCreated(owner.clone(), comment_id, reaction_id));
+
+      match kind {
+        ReactionKind::Upvote => comment.upvotes_count += 1,
+        ReactionKind::Downvote => comment.downvotes_count += 1,
       }
-      else {
-        let reaction_id = Self::new_reaction(owner.clone(), kind.clone());
-
-        <ReactionIdsByCommentId<T>>::mutate(comment_id, |ids| ids.push(reaction_id));
-        <CommentReactionIdByAccount<T>>::insert((owner.clone(), comment_id), reaction_id);
-        Self::deposit_event(RawEvent::CommentReactionCreated(owner.clone(), comment_id, reaction_id));
-
-        match kind {
-          ReactionKind::Upvote => comment.upvotes_count += 1,
-          ReactionKind::Downvote => comment.downvotes_count += 1,
-        }
-        <CommentById<T>>::insert(comment_id, comment); // TODO maybe use mutate instead of insert?
-      }
+      <CommentById<T>>::insert(comment_id, comment); // TODO maybe use mutate instead of insert?
     }
 
     fn update_blog(origin, blog_id: T::BlogId, update: BlogUpdate<T>) {
@@ -493,12 +482,12 @@ decl_module! {
       // Move this post to another blog:
       if let Some(blog_id) = update.blog_id {
         if blog_id != post.blog_id {
-          ensure!(<BlogById<T>>::exists(blog_id), "Unknown blog id");
+          Self::ensure_blog_exists(blog_id)?;
           
           // Remove post_id from its old blog:
-          <PostIdsByBlogId<T>>::mutate(post.blog_id, |ids| {
-            if let Some(index) = ids.iter().position(|x| *x == post_id) {
-              ids.swap_remove(index);
+          <PostIdsByBlogId<T>>::mutate(post.blog_id, |post_ids| {
+            if let Some(index) = post_ids.iter().position(|x| *x == post_id) {
+              post_ids.swap_remove(index);
             }
           });
           
@@ -605,7 +594,7 @@ decl_module! {
       let mut post = Self::post_by_id(post_id).ok_or("Post was not found by id")?;
       ensure!(owner == reaction.created.account, "Only reaction owner can delete their reaction");
 
-      let mut reaction_found = false;
+      let mut reaction_deleted = false;
       <ReactionIdsByPostId<T>>::mutate(post_id, |ids| {
         if let Some(index) = ids.iter().position(|x| *x == reaction_id) {
           ids.swap_remove(index);
@@ -619,10 +608,10 @@ decl_module! {
           <ReactionById<T>>::remove(reaction_id);
           <PostReactionIdByAccount<T>>::remove((owner.clone(), post_id));
           Self::deposit_event(RawEvent::PostReactionDeleted(owner.clone(), post_id, reaction_id));
-          reaction_found = true;
+          reaction_deleted = true;
         }
       });
-      ensure!(reaction_found, "Reaction is not related to a post");
+      ensure!(reaction_deleted, "Reaction is not related to a post");
     }
 
     fn delete_comment_reaction(origin, comment_id: T::CommentId, reaction_id: T::ReactionId) {
@@ -632,7 +621,7 @@ decl_module! {
       let mut comment = Self::comment_by_id(comment_id).ok_or("Comment was not found by id")?;
       ensure!(owner == reaction.created.account, "Only reaction owner can delete their reaction");
 
-      let mut reaction_found = false;
+      let mut reaction_deleted = false;
       <ReactionIdsByCommentId<T>>::mutate(comment_id, |ids| {
         if let Some(index) = ids.iter().position(|x| *x == reaction_id) {
           ids.swap_remove(index);
@@ -641,15 +630,15 @@ decl_module! {
             ReactionKind::Upvote => comment.upvotes_count -= 1,
             ReactionKind::Downvote => comment.downvotes_count -= 1,
           }
-          
+
           <CommentById<T>>::insert(comment_id, comment); // TODO maybe use mutate instead of insert?
           <ReactionById<T>>::remove(reaction_id);
           <CommentReactionIdByAccount<T>>::remove((owner.clone(), comment_id));
           Self::deposit_event(RawEvent::CommentReactionDeleted(owner.clone(), comment_id, reaction_id));
-          reaction_found = true;
+          reaction_deleted = true;
         }
       });
-      ensure!(reaction_found, "Reaction is not related to a comment");
+      ensure!(reaction_deleted, "Reaction is not related to a comment");
     }
 
     // TODO spend some tokens on: create/update a blog/post/comment.
@@ -657,6 +646,12 @@ decl_module! {
 }
 
 impl<T: Trait> Module<T> {
+
+  fn ensure_blog_exists(blog_id: T::BlogId) -> dispatch::Result {
+    ensure!(<BlogById<T>>::exists(blog_id), "Unknown blog id");
+    Ok(())
+  }
+
   fn new_change(account: T::AccountId) -> Change<T> {
     Change {
       account,
@@ -684,5 +679,6 @@ impl<T: Trait> Module<T> {
     <BlogsFollowedByAccount<T>>::mutate(account.clone(), |ids| ids.push(blog_id));
     <BlogFollowers<T>>::mutate(blog_id, |ids| ids.push(account.clone()));
     <BlogFollowedByAccount<T>>::insert((account.clone(), blog_id), true);
+    Self::deposit_event(RawEvent::BlogFollowed(account, blog_id));
   }
 }
