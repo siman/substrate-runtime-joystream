@@ -25,7 +25,7 @@ pub trait Trait: system::Trait + timestamp::Trait + MaybeDebug {
 }
 
 #[cfg_attr(feature = "std", derive(Debug))]
-#[derive(Clone, Encode, Decode, PartialEq)]
+#[derive(Clone, Copy, Encode, Decode, PartialEq)]
 pub struct Change<T: Trait> {
   account: T::AccountId,
   block: T::BlockNumber,
@@ -107,7 +107,7 @@ pub struct CommentUpdate {
 }
 
 #[cfg_attr(feature = "std", derive(Serialize, Deserialize, Debug))]
-#[derive(Encode, Decode, Clone, PartialEq, Eq)]
+#[derive(Clone, Copy, Encode, Decode, PartialEq, Eq)]
 pub enum ReactionKind {
     Upvote,
     Downvote,
@@ -510,7 +510,6 @@ decl_module! {
       let owner = ensure_signed(origin)?;
 
       let mut comment = Self::comment_by_id(comment_id).ok_or("Comment was not found by id")?;
-
       ensure!(owner == comment.created.account, "Only comment author can update their comment");
 
       let json = update.json;
@@ -524,16 +523,24 @@ decl_module! {
       Self::deposit_event(RawEvent::CommentUpdated(owner.clone(), comment_id));
     }
 
-    fn update_post_reaction(origin, post_id: T::PostId, reaction_id: T::ReactionId, kind: ReactionKind) {
+    fn update_post_reaction(origin, post_id: T::PostId, reaction_id: T::ReactionId, new_kind: ReactionKind) {
       let owner = ensure_signed(origin)?;
 
-      let mut reaction = Self::reaction_by_id(reaction_id).ok_or("Reaction was not found by id")?;
-      let mut post = Self::post_by_id(post_id).ok_or("Post was not found by id")?;
-      
-      ensure!(reaction.kind != kind, "Current account reaction is the same as requested");
-      ensure!(owner == reaction.created.account, "Only reaction owner can update their reaction");
+      ensure!(
+        <PostReactionIdByAccount<T>>::exists((owner.clone(), post_id)),
+        "Account has not reacted to this post yet. Use create_post_reaction()"
+      );
 
-      match kind {
+      let mut reaction = Self::reaction_by_id(reaction_id).ok_or("Reaction was not found by id")?;
+      ensure!(owner == reaction.created.account, "Only reaction owner can update their reaction");
+      ensure!(reaction.kind != new_kind, "Current account reaction is the same as requested");
+
+      reaction.kind = new_kind;
+      reaction.updated = Some(Self::new_change(owner.clone()));
+      <ReactionById<T>>::insert(reaction_id, reaction);
+
+      let mut post = Self::post_by_id(post_id).ok_or("Post was not found by id")?;
+      match new_kind {
         ReactionKind::Upvote => {
           post.upvotes_count += 1;
           post.downvotes_count -= 1;
@@ -546,23 +553,27 @@ decl_module! {
       // TODO maybe use mutate instead of insert?
       <PostById<T>>::insert(post_id, post);
 
-      reaction.kind = kind;
-      reaction.updated = Some(Self::new_change(owner.clone()));
-      <ReactionById<T>>::insert(reaction_id, reaction);
-
       Self::deposit_event(RawEvent::PostReactionUpdated(owner.clone(), post_id, reaction_id));
     }
 
-    fn update_comment_reaction(origin, comment_id: T::CommentId, reaction_id: T::ReactionId, kind: ReactionKind) {
+    fn update_comment_reaction(origin, comment_id: T::CommentId, reaction_id: T::ReactionId, new_kind: ReactionKind) {
       let owner = ensure_signed(origin)?;
 
-      let mut reaction = Self::reaction_by_id(reaction_id).ok_or("Reaction was not found by id")?;
-      let mut comment = Self::comment_by_id(comment_id).ok_or("Comment was not found by id")?;
-      
-      ensure!(reaction.kind != kind, "Current account reaction is the same as requested");
-      ensure!(owner == reaction.created.account, "Only reaction owner can update their reaction");
+      ensure!(
+        <CommentReactionIdByAccount<T>>::exists((owner.clone(), comment_id)),
+        "Account has not reacted to this comment yet. Use create_comment_reaction()"
+      );
 
-      match kind {
+      let mut reaction = Self::reaction_by_id(reaction_id).ok_or("Reaction was not found by id")?;
+      ensure!(owner == reaction.created.account, "Only reaction owner can update their reaction");
+      ensure!(reaction.kind != new_kind, "Current account reaction is the same as requested");
+
+      reaction.kind = new_kind;
+      reaction.updated = Some(Self::new_change(owner.clone()));
+      <ReactionById<T>>::insert(reaction_id, reaction);
+
+      let mut comment = Self::comment_by_id(comment_id).ok_or("Comment was not found by id")?;
+      match new_kind {
         ReactionKind::Upvote => {
           comment.upvotes_count += 1;
           comment.downvotes_count -= 1;
@@ -574,10 +585,6 @@ decl_module! {
       }
       // TODO maybe use mutate instead of insert?
       <CommentById<T>>::insert(comment_id, comment);
-
-      reaction.kind = kind;
-      reaction.updated = Some(Self::new_change(owner.clone()));
-      <ReactionById<T>>::insert(reaction_id, reaction);
 
       Self::deposit_event(RawEvent::CommentReactionUpdated(owner.clone(), comment_id, reaction_id));
     }
@@ -593,60 +600,64 @@ decl_module! {
 
     fn delete_post_reaction(origin, post_id: T::PostId, reaction_id: T::ReactionId) {
       let owner = ensure_signed(origin)?;
+
+      ensure!(
+        <PostReactionIdByAccount<T>>::exists((owner.clone(), post_id)),
+        "There is no post reaction by account that could be deleted"
+      );
       
       let reaction = Self::reaction_by_id(reaction_id).ok_or("Reaction was not found by id")?;
-      let mut post = Self::post_by_id(post_id).ok_or("Post was not found by id")?;
       ensure!(owner == reaction.created.account, "Only reaction owner can delete their reaction");
 
-      let mut reaction_deleted = false;
       <ReactionIdsByPostId<T>>::mutate(post_id, |ids| {
         if let Some(index) = ids.iter().position(|x| *x == reaction_id) {
           ids.swap_remove(index);
-
-          match reaction.kind {
-            ReactionKind::Upvote => post.upvotes_count -= 1,
-            ReactionKind::Downvote => post.downvotes_count -= 1,
-          }
-          // TODO maybe use mutate instead of insert?
-          <PostById<T>>::insert(post_id, post);
-
-          <ReactionById<T>>::remove(reaction_id);
-          <PostReactionIdByAccount<T>>::remove((owner.clone(), post_id));
-          reaction_deleted = true;
-
-          Self::deposit_event(RawEvent::PostReactionDeleted(owner.clone(), post_id, reaction_id));
         }
       });
-      ensure!(reaction_deleted, "Reaction is not related to a post");
+
+      let mut post = Self::post_by_id(post_id).ok_or("Post was not found by id")?;
+      match reaction.kind {
+        ReactionKind::Upvote => post.upvotes_count -= 1,
+        ReactionKind::Downvote => post.downvotes_count -= 1,
+      }
+      // TODO maybe use mutate instead of insert?
+      <PostById<T>>::insert(post_id, post);
+
+      <ReactionById<T>>::remove(reaction_id);
+      <PostReactionIdByAccount<T>>::remove((owner.clone(), post_id));
+
+      Self::deposit_event(RawEvent::PostReactionDeleted(owner.clone(), post_id, reaction_id));
     }
 
     fn delete_comment_reaction(origin, comment_id: T::CommentId, reaction_id: T::ReactionId) {
       let owner = ensure_signed(origin)?;
+
+      ensure!(
+        <CommentReactionIdByAccount<T>>::exists((owner.clone(), comment_id)),
+        "There is no comment reaction by account that could be deleted"
+      );
       
       let reaction = Self::reaction_by_id(reaction_id).ok_or("Reaction was not found by id")?;
-      let mut comment = Self::comment_by_id(comment_id).ok_or("Comment was not found by id")?;
       ensure!(owner == reaction.created.account, "Only reaction owner can delete their reaction");
 
-      let mut reaction_deleted = false;
       <ReactionIdsByCommentId<T>>::mutate(comment_id, |ids| {
         if let Some(index) = ids.iter().position(|x| *x == reaction_id) {
           ids.swap_remove(index);
-
-          match reaction.kind {
-            ReactionKind::Upvote => comment.upvotes_count -= 1,
-            ReactionKind::Downvote => comment.downvotes_count -= 1,
-          }
-          // TODO maybe use mutate instead of insert?
-          <CommentById<T>>::insert(comment_id, comment);
-
-          <ReactionById<T>>::remove(reaction_id);
-          <CommentReactionIdByAccount<T>>::remove((owner.clone(), comment_id));
-          reaction_deleted = true;
-
-          Self::deposit_event(RawEvent::CommentReactionDeleted(owner.clone(), comment_id, reaction_id));
         }
       });
-      ensure!(reaction_deleted, "Reaction is not related to a comment");
+      
+      let mut comment = Self::comment_by_id(comment_id).ok_or("Comment was not found by id")?;
+      match reaction.kind {
+        ReactionKind::Upvote => comment.upvotes_count -= 1,
+        ReactionKind::Downvote => comment.downvotes_count -= 1,
+      }
+      // TODO maybe use mutate instead of insert?
+      <CommentById<T>>::insert(comment_id, comment);
+
+      <ReactionById<T>>::remove(reaction_id);
+      <CommentReactionIdByAccount<T>>::remove((owner.clone(), comment_id));
+
+      Self::deposit_event(RawEvent::CommentReactionDeleted(owner.clone(), comment_id, reaction_id));
     }
 
     // TODO spend some tokens on: create/update a blog/post/comment.
