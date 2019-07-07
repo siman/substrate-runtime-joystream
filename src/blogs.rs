@@ -543,11 +543,13 @@ decl_module! {
           post.upvotes_count -= 1;
         },
       }
+      // TODO maybe use mutate instead of insert?
+      <PostById<T>>::insert(post_id, post);
 
       reaction.kind = kind;
       reaction.updated = Some(Self::new_change(owner.clone()));
-
       <ReactionById<T>>::insert(reaction_id, reaction);
+
       Self::deposit_event(RawEvent::PostReactionUpdated(owner.clone(), post_id, reaction_id));
     }
 
@@ -570,11 +572,13 @@ decl_module! {
           comment.upvotes_count -= 1;
         },
       }
+      // TODO maybe use mutate instead of insert?
+      <CommentById<T>>::insert(comment_id, comment);
 
       reaction.kind = kind;
       reaction.updated = Some(Self::new_change(owner.clone()));
-
       <ReactionById<T>>::insert(reaction_id, reaction);
+
       Self::deposit_event(RawEvent::CommentReactionUpdated(owner.clone(), comment_id, reaction_id));
     }
 
@@ -603,12 +607,14 @@ decl_module! {
             ReactionKind::Upvote => post.upvotes_count -= 1,
             ReactionKind::Downvote => post.downvotes_count -= 1,
           }
+          // TODO maybe use mutate instead of insert?
+          <PostById<T>>::insert(post_id, post);
 
-          <PostById<T>>::insert(post_id, post); // TODO maybe use mutate instead of insert?
           <ReactionById<T>>::remove(reaction_id);
           <PostReactionIdByAccount<T>>::remove((owner.clone(), post_id));
-          Self::deposit_event(RawEvent::PostReactionDeleted(owner.clone(), post_id, reaction_id));
           reaction_deleted = true;
+
+          Self::deposit_event(RawEvent::PostReactionDeleted(owner.clone(), post_id, reaction_id));
         }
       });
       ensure!(reaction_deleted, "Reaction is not related to a post");
@@ -630,12 +636,14 @@ decl_module! {
             ReactionKind::Upvote => comment.upvotes_count -= 1,
             ReactionKind::Downvote => comment.downvotes_count -= 1,
           }
+          // TODO maybe use mutate instead of insert?
+          <CommentById<T>>::insert(comment_id, comment);
 
-          <CommentById<T>>::insert(comment_id, comment); // TODO maybe use mutate instead of insert?
           <ReactionById<T>>::remove(reaction_id);
           <CommentReactionIdByAccount<T>>::remove((owner.clone(), comment_id));
-          Self::deposit_event(RawEvent::CommentReactionDeleted(owner.clone(), comment_id, reaction_id));
           reaction_deleted = true;
+
+          Self::deposit_event(RawEvent::CommentReactionDeleted(owner.clone(), comment_id, reaction_id));
         }
       });
       ensure!(reaction_deleted, "Reaction is not related to a comment");
