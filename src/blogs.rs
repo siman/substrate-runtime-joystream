@@ -359,13 +359,15 @@ decl_module! {
 
       <ReactionIdsByPostId<T>>::mutate(post_id, |ids| ids.push(reaction_id));
       <PostReactionIdByAccount<T>>::insert((owner.clone(), post_id), reaction_id);
-      Self::deposit_event(RawEvent::PostReactionCreated(owner.clone(), post_id, reaction_id));
 
       match kind {
         ReactionKind::Upvote => post.upvotes_count += 1,
         ReactionKind::Downvote => post.downvotes_count += 1,
       }
-      <PostById<T>>::insert(post_id, post); // TODO maybe use mutate instead of insert?
+      // TODO maybe use mutate instead of insert?
+      <PostById<T>>::insert(post_id, post);
+
+      Self::deposit_event(RawEvent::PostReactionCreated(owner.clone(), post_id, reaction_id));
     }
 
     fn create_comment_reaction(origin, comment_id: T::CommentId, kind: ReactionKind) {
@@ -381,13 +383,15 @@ decl_module! {
 
       <ReactionIdsByCommentId<T>>::mutate(comment_id, |ids| ids.push(reaction_id));
       <CommentReactionIdByAccount<T>>::insert((owner.clone(), comment_id), reaction_id);
-      Self::deposit_event(RawEvent::CommentReactionCreated(owner.clone(), comment_id, reaction_id));
 
       match kind {
         ReactionKind::Upvote => comment.upvotes_count += 1,
         ReactionKind::Downvote => comment.downvotes_count += 1,
       }
-      <CommentById<T>>::insert(comment_id, comment); // TODO maybe use mutate instead of insert?
+      // TODO maybe use mutate instead of insert?
+      <CommentById<T>>::insert(comment_id, comment);
+
+      Self::deposit_event(RawEvent::CommentReactionCreated(owner.clone(), comment_id, reaction_id));
     }
 
     fn update_blog(origin, blog_id: T::BlogId, update: BlogUpdate<T>) {
