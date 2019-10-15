@@ -2,7 +2,7 @@
 authors = ['Joystream']
 edition = '2018'
 name = 'joystream-node-runtime'
-version = '6.0.0'
+version = '6.1.0'
 
 [features]
 default = ['std']
@@ -39,6 +39,7 @@ std = [
     'offchain-primitives/std',
     'substrate-session/std',
     'forum/std',
+    'versioned-store/std',
     'node-primitives/std'
 ]
 
@@ -235,3 +236,9 @@ package = 'substrate-forum-module'
 branch = 'substrate-v2'
 # Before releasing Rome - finalize and tag release new forum and update this
 # tag = 'v1.0.0'
+
+[dependencies.versioned-store]
+default_features = false
+package = 'substrate-versioned-store'
+git = 'https://github.com/siman/substrate-versioned-store-module'
+branch = 'alex-substrate-v2'

@@ -367,6 +367,7 @@ mod membership;
 mod memo;
 mod traits;
 pub use forum;
+pub use versioned_store;
 use membership::members;
 
 mod migration;
@@ -515,6 +516,10 @@ impl forum::Trait for Runtime {
     type MembershipRegistry = ShimMembershipRegistry;
 }
 
+impl versioned_store::Trait for Runtime {
+    type Event = Event;
+}
+
 impl migration::Trait for Runtime {
     type Event = Event;
 }
@@ -565,6 +570,7 @@ construct_runtime!(
 		Memo: memo::{Module, Call, Storage, Event<T>},
 		Members: members::{Module, Call, Storage, Event<T>, Config<T>},
         Forum: forum::{Module, Call, Storage, Event<T>, Config<T>},
+        VersionedStore: versioned_store::{Module, Call, Storage, Event<T>, Config<T>},
 		Migration: migration::{Module, Call, Storage, Event<T>},
 		Actors: actors::{Module, Call, Storage, Event<T>, Config},
 		DataObjectTypeRegistry: data_object_type_registry::{Module, Call, Storage, Event<T>, Config<T>},
